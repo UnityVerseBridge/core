@@ -1,0 +1,23 @@
+{
+    "name": "com.unityversebridge.core",
+    "version": "0.1.0",
+    "displayName": "UnityVerse Bridge Core",
+    "description": "Core WebRTC communication logic for UnityVerse Bridge.",
+    "unity": "2022.3",
+    "dependencies": {
+        "com.unity.webrtc": "3.0.0-pre.8"
+    },
+    "author": {
+        "name": "Kim Hyeonwoo",
+        "email": "ialskdji@gmail.com",
+        "url": "https://github.com/UnityVerseBridge"
+    },
+    "keywords": [
+        "webrtc",
+        "meta quest",
+        "mobile",
+        "streaming",
+        "interaction",
+        "unityverse bridge"
+    ]
+}
