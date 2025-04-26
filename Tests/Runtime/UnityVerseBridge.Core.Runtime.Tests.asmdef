@@ -1,0 +1,22 @@
+{
+    "name": "UnityVerseBridge.Core.Runtime.Tests",
+    "rootNamespace": "UnityVerseBridge.Core.Tests.Runtime",
+    "references": [
+        "UnityVerseBridge.Core.Runtime",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

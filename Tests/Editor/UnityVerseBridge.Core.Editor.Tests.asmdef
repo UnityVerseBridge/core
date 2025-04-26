@@ -1,0 +1,25 @@
+{
+    "name": "UnityVerseBridge.Core.Editor.Tests",
+    "rootNamespace": "UnityVerseBridge.Core.Tests.Editor",
+    "references": [
+        "UnityVerseBridge.Core.Runtime",
+        "UnityVerseBridge.Core.Editor",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
