@@ -25,6 +25,13 @@ namespace UnityVerseBridge.Core.Samples.SimpleConnection
         [SerializeField] private TMP_Text receivedMessagesText;
         [SerializeField] private ScrollRect receivedMessagesScrollRect; // 메시지 많을 때 스크롤
 
+        [Serializable]
+        private class ChatMessage
+        {
+            public string type;
+            public string text;
+        }
+
         void Start()
         {
             if (webRtcManager == null)
@@ -74,13 +81,8 @@ namespace UnityVerseBridge.Core.Samples.SimpleConnection
             string message = messageInputField.text;
             if (!string.IsNullOrEmpty(message) && webRtcManager != null)
             {
-                // TODO: 실제로는 구조화된 데이터 객체(DataChannelMessageBase 상속)를 보내야 함
-                // 예: var chatMsg = new ChatMessage { type="chat", text=message };
-                // webRtcManager.SendDataChannelMessage(chatMsg);
-
-                // 이 샘플에서는 간단히 문자열 그대로 전송
-                webRtcManager.SendDataChannelMessage(message);
-                messageInputField.text = ""; // 입력 필드 비우기
+                webRtcManager.SendDataChannelMessage(new ChatMessage { type = "chat", text = message });
+                messageInputField.text = string.Empty; // 입력 필드 비우기
             }
         }
 
@@ -93,19 +95,24 @@ namespace UnityVerseBridge.Core.Samples.SimpleConnection
         private void HandleDataChannelMessageReceived(string message)
         {
             string formattedMessage = $"> {message}\n";
-            Debug.Log($"Sample received: {message}");
-            receivedMessagesText.text += formattedMessage;
+            Debug.Log($"Sample received: {formattedMessage}");
+
+            var chatMsg = JsonUtility.FromJson<ChatMessage>(message);
+            receivedMessagesText.text += $"[{chatMsg.type}]: {chatMsg.text}\n";
 
             // 스크롤 자동 내리기 (선택 사항)
             Canvas.ForceUpdateCanvases(); // 강제 업데이트 후 스크롤 조정
-            receivedMessagesScrollRect?.verticalScrollbar.SetValueWithoutNotify(0f);
+            if (receivedMessagesScrollRect != null && receivedMessagesScrollRect.verticalScrollbar != null)
+                receivedMessagesScrollRect.verticalScrollbar.SetValueWithoutNotify(0f);
             StartCoroutine(ScrollToBottom()); // 다음 프레임에 스크롤 조정
         }
 
         private IEnumerator ScrollToBottom()
         {
-             yield return null; // 한 프레임 대기 (UI 업데이트 후)
-             if(receivedMessagesScrollRect) receivedMessagesScrollRect.verticalNormalizedPosition = 0f;
+            yield return null; // 한 프레임 대기 (UI 업데이트 후)
+
+            if (receivedMessagesScrollRect) 
+                receivedMessagesScrollRect.verticalNormalizedPosition = 0f;
         }
     }
 }
