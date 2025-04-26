@@ -5,8 +5,16 @@
     "description": "Core WebRTC communication logic for UnityVerse Bridge.",
     "unity": "2022.3",
     "dependencies": {
-        "com.unity.webrtc": "3.0.0-pre.8"
+        "com.unity.webrtc": "3.0.0-pre.8",
+        "com.unity.test-framework": "1.4.6"
     },
+    "samples": [
+        {
+            "displayName": "Simple Connection Sample",
+            "description": "기본적인 P2P 연결 및 데이터 채널 메시지 교환 예제",
+            "path": "Samples~/SimpleConnection"
+        }
+    ],
     "author": {
         "name": "kugorang",
         "email": "ialskdji@gmail.com",
