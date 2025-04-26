@@ -14,7 +14,7 @@ namespace UnityVerseBridge.Core
     {
         [Header("Configuration")]
         // Inspector에서 설정하거나 코드로 주입할 수 있음
-        [SerializeField] private WebRtcConfiguration configuration = new WebRtcConfiguration();
+        [SerializeField] private WebRtcConfiguration configuration = new();
         [SerializeField] private string signalingServerUrl = "ws://localhost:8080"; // 기본값, Inspector에서 변경 가능
 
         [Header("Dependencies")]
@@ -45,10 +45,27 @@ namespace UnityVerseBridge.Core
 
         void Awake()
         {
-            // 실제 SignalingClient 구현체 생성 (나중에는 의존성 주입 프레임워크 사용 고려)
-            signalingClient = new SignalingClient();
+            // SignalingClient 인스턴스 생성
+            // 만약 테스트 환경에서 InitializeForTest를 통해 외부 Mock 객체가 주입되었다면,
+            // 여기서 new로 다시 덮어쓰지 않도록 주의해야 할 수 있다. (또는 InitializeForTest에서 처리)
+            // 현재 구조에서는 Awake에서 생성하고 InitializeForTest에서 덮어쓰는 방식도 가능하다.
+            if (signalingClient == null) // 테스트에서 미리 주입되지 않은 경우에만 생성
+            {
+                signalingClient = new SignalingClient();
+                Debug.Log("New SignalingClient instance created in Awake.");
+            }
         }
-        
+
+        void Start()
+        {
+            // Awake에서 생성된 signalingClient의 이벤트를 구독한다.
+            // InitializeForTest에서도 호출되지만, 일반 실행 경로를 위해 Start에서도 호출 필요.
+            SubscribeSignalingEvents();
+
+            // (선택 사항) 앱 시작 시 자동으로 시그널링 연결 시작
+            // ConnectSignaling();
+        }
+
         // WebRtcManager.cs 안에 추가
         // 테스트 코드에서 Mock 객체를 주입하기 위한 public 메서드
         public void InitializeForTest(ISignalingClient client, WebRtcConfiguration config)
@@ -65,11 +82,17 @@ namespace UnityVerseBridge.Core
         // 이벤트 구독 로직을 별도 메서드로 분리 (Start/Awake에서 호출되지 않도록 주의)
         private void SubscribeSignalingEvents()
         {
-            if (signalingClient == null) return;
+            if (signalingClient == null)
+            {
+                Debug.LogError("SignalingClient is null, cannot subscribe events.");
+                return;
+            }
+
             // 중복 구독 방지를 위해 먼저 해지
             signalingClient.OnConnected -= HandleSignalingConnected;
             signalingClient.OnDisconnected -= HandleSignalingDisconnected;
             signalingClient.OnSignalingMessageReceived -= HandleSignalingMessage;
+
             // 다시 구독
             signalingClient.OnConnected += HandleSignalingConnected;
             signalingClient.OnDisconnected += HandleSignalingDisconnected;
@@ -93,9 +116,20 @@ namespace UnityVerseBridge.Core
 
         public void ConnectSignaling()
         {
+            if (signalingClient == null)
+            {
+                Debug.LogError("SignalingClient is not initialized.");
+                return;
+            }
+            // IsConnected 속성이 signalingClient null 여부도 체크하므로 아래는 유지 가능
             if (!IsSignalingConnected)
             {
-                _ = signalingClient.Connect(signalingServerUrl); // 비동기 호출 (반환값 무시)
+                Debug.Log($"Attempting to connect Signaling: {signalingServerUrl}");
+                _ = signalingClient.Connect(signalingServerUrl);    // 비동기 호출 (반환값 무시)
+            }
+            else
+            {
+                Debug.LogWarning("Signaling already connected or connecting.");
             }
         }
 
@@ -109,8 +143,8 @@ namespace UnityVerseBridge.Core
             }
             if (peerConnection != null)
             {
-                 Debug.LogWarning("Peer connection already exists or is starting.");
-                 return;
+                Debug.LogWarning("Peer connection already exists or is starting.");
+                return;
             }
             Debug.Log("Starting Peer Connection process as offerer...");
             CreatePeerConnection();
@@ -128,14 +162,14 @@ namespace UnityVerseBridge.Core
             }
             try
             {
-                 // JsonUtility는 [System.Serializable] 필요, 복잡 객체는 Newtonsoft.Json 등 고려
+                // JsonUtility는 [System.Serializable] 필요, 복잡 객체는 Newtonsoft.Json 등 고려
                 string jsonMessage = JsonUtility.ToJson(messageData);
                 Debug.Log($"Sending Data Channel Message: {jsonMessage}");
                 dataChannel.Send(jsonMessage);
             }
             catch (Exception e)
             {
-                 Debug.LogError($"Failed to serialize or send data channel message: {e.Message}");
+                Debug.LogError($"Failed to serialize or send data channel message: {e.Message}");
             }
         }
 
@@ -194,45 +228,61 @@ namespace UnityVerseBridge.Core
             }
             catch (Exception e)
             {
-                 Debug.LogError($"Failed to create data channel: {e.Message}");
+                Debug.LogError($"Failed to create data channel: {e.Message}");
             }
         }
 
         private void SetupDataChannelEvents(RTCDataChannel channel)
         {
             if (channel == null) return;
-            channel.OnOpen = () => {
+            channel.OnOpen = () =>
+            {
                 Debug.Log($"Data Channel '{channel.Label}' Opened!");
                 OnDataChannelOpened?.Invoke(channel.Label);
             };
-            channel.OnClose = () => {
+            channel.OnClose = () =>
+            {
                 Debug.Log($"Data Channel '{channel.Label}' Closed!");
                 OnDataChannelClosed?.Invoke();
             };
-            channel.OnMessage = (bytes) => {
+            channel.OnMessage = (bytes) =>
+            {
                 var message = System.Text.Encoding.UTF8.GetString(bytes);
                 // Debug.Log($"DataChannel Message Received: {message}"); // 너무 많으면 주석 처리
                 OnDataChannelMessageReceived?.Invoke(message);
             };
-            channel.OnError = (error) => {
+            channel.OnError = (error) =>
+            {
                 Debug.LogError($"Data Channel Error: {error}");
             };
         }
 
         // --- Signaling Event Handlers ---
-        private void HandleSignalingConnected() => OnSignalingConnected?.Invoke();
-        private void HandleSignalingDisconnected() => OnSignalingDisconnected?.Invoke();
+        private void HandleSignalingConnected()
+        {
+            Debug.Log("HandleSignalingConnected: Signaling Connected!"); // 로그 추가
+            OnSignalingConnected?.Invoke();
+            // 이제 IsSignalingConnected가 true가 될 것이므로 StartPeerConnection 호출 가능
+        }
 
+        private void HandleSignalingDisconnected()
+        {
+            Debug.Log("HandleSignalingDisconnected: Signaling Disconnected!"); // 로그 추가
+            OnSignalingDisconnected?.Invoke();
+            // 필요시 여기서 WebRTC 연결도 끊는 로직 추가 고려
+        }
         private void HandleSignalingMessage(string type, string jsonData)
         {
             Debug.Log($"Handling Signaling Message | Type: {type}");
             // PeerConnection이 없는데 Offer 외 메시지가 오면 무시 (상황에 따라 다름)
-             if (peerConnection == null && type != "offer") {
-                 Debug.LogWarning($"Received signaling message '{type}' before peer connection was initialized.");
-                 return;
-             }
+            if (peerConnection == null && type != "offer")
+            {
+                Debug.LogWarning($"Received signaling message '{type}' before peer connection was initialized.");
+                return;
+            }
 
-            try {
+            try
+            {
                 switch (type)
                 {
                     case "offer":
@@ -250,8 +300,10 @@ namespace UnityVerseBridge.Core
                         Debug.LogWarning($"Unknown signaling message type received: {type}");
                         break;
                 }
-            } catch(Exception e) {
-                 Debug.LogError($"Error handling signaling message (Type: {type}): {e.Message}\nData: {jsonData}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error handling signaling message (Type: {type}): {e.Message}\nData: {jsonData}");
             }
         }
 
@@ -275,11 +327,13 @@ namespace UnityVerseBridge.Core
                     Debug.Log("Local Description (Offer) Set. Sending Offer...");
                     var offerMsg = new SessionDescriptionMessage("offer", offerDesc.sdp);
                     _ = signalingClient.SendMessage(offerMsg); // 비동기 호출
-                } else { Debug.LogError($"Failed to set local description (Offer): {localDescOp.Error.message}"); }
-            } else { Debug.LogError($"Failed to create offer: {offerOp.Error.message}"); }
+                }
+                else { Debug.LogError($"Failed to set local description (Offer): {localDescOp.Error.message}"); }
+            }
+            else { Debug.LogError($"Failed to create offer: {offerOp.Error.message}"); }
         }
 
-         private IEnumerator HandleOfferAndSendAnswer(SessionDescriptionMessage offerMessage)
+        private IEnumerator HandleOfferAndSendAnswer(SessionDescriptionMessage offerMessage)
         {
             if (peerConnection == null) yield break; // 이미 생성되었어야 함
             Debug.Log("Received Offer, Setting Remote Description...");
@@ -303,16 +357,19 @@ namespace UnityVerseBridge.Core
                     {
                         Debug.Log("Local Description (Answer) Set. Sending Answer...");
                         var answerMsg = new SessionDescriptionMessage("answer", answerDesc.sdp);
-                         _ = signalingClient.SendMessage(answerMsg);
-                    } else { Debug.LogError($"Failed to set local description (Answer): {localDescOp.Error.message}"); }
-                } else { Debug.LogError($"Failed to create answer: {answerOp.Error.message}"); }
-            } else { Debug.LogError($"Failed to set remote description (Offer): {remoteDescOp.Error.message}"); }
+                        _ = signalingClient.SendMessage(answerMsg);
+                    }
+                    else { Debug.LogError($"Failed to set local description (Answer): {localDescOp.Error.message}"); }
+                }
+                else { Debug.LogError($"Failed to create answer: {answerOp.Error.message}"); }
+            }
+            else { Debug.LogError($"Failed to set remote description (Offer): {remoteDescOp.Error.message}"); }
         }
 
         private IEnumerator HandleAnswer(SessionDescriptionMessage answerMessage)
         {
             if (peerConnection == null) yield break;
-             Debug.Log("Received Answer, Setting Remote Description...");
+            Debug.Log("Received Answer, Setting Remote Description...");
             RTCSessionDescription answerDesc = new RTCSessionDescription { type = RTCSdpType.Answer, sdp = answerMessage.sdp };
             var remoteDescOp = peerConnection.SetRemoteDescription(ref answerDesc);
             yield return remoteDescOp;
@@ -324,13 +381,16 @@ namespace UnityVerseBridge.Core
         private void HandleIceCandidate(IceCandidateMessage candidateMessage)
         {
             if (peerConnection == null) return;
-             try {
-                 RTCIceCandidate candidate = candidateMessage.ToRTCIceCandidate();
-                 peerConnection.AddIceCandidate(candidate);
-                 // Debug.Log("ICE Candidate Added."); // 너무 자주 로깅될 수 있음
-             } catch (Exception e) {
-                 Debug.LogError($"Error adding received ICE candidate: {e.Message}");
-             }
+            try
+            {
+                RTCIceCandidate candidate = candidateMessage.ToRTCIceCandidate();
+                peerConnection.AddIceCandidate(candidate);
+                // Debug.Log("ICE Candidate Added."); // 너무 자주 로깅될 수 있음
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error adding received ICE candidate: {e.Message}");
+            }
         }
 
         private void HandleIceCandidateGenerated(RTCIceCandidate candidate)
@@ -346,10 +406,12 @@ namespace UnityVerseBridge.Core
         // --- PeerConnection Event Handlers ---
         private void HandleIceConnectionChange(RTCIceConnectionState state) { Debug.Log($"ICE Connection State: {state}"); }
 
-        private void HandleConnectionStateChange(RTCPeerConnectionState state) {
+        private void HandleConnectionStateChange(RTCPeerConnectionState state)
+        {
             Debug.Log($"Peer Connection State: {state}");
             if (state == RTCPeerConnectionState.Connected) { OnWebRtcConnected?.Invoke(); }
-            else if (state == RTCPeerConnectionState.Failed || state == RTCPeerConnectionState.Disconnected || state == RTCPeerConnectionState.Closed) {
+            else if (state == RTCPeerConnectionState.Failed || state == RTCPeerConnectionState.Disconnected || state == RTCPeerConnectionState.Closed)
+            {
                 OnWebRtcDisconnected?.Invoke();
                 // 연결 실패/종료 시 정리 작업 고려
                 // Disconnect(); // 필요시 자동 재연결 로직 등 고려
@@ -366,8 +428,8 @@ namespace UnityVerseBridge.Core
             }
             else
             {
-                 Debug.LogWarning($"Another data channel '{channel.Label}' received, but one already exists.");
-                 // 필요시 추가 채널 처리 로직
+                Debug.LogWarning($"Another data channel '{channel.Label}' received, but one already exists.");
+                // 필요시 추가 채널 처리 로직
             }
         }
 
@@ -402,13 +464,14 @@ namespace UnityVerseBridge.Core.Common
         // WebRtcConfiguration 객체를 Unity WebRTC의 RTCConfiguration으로 변환
         public static RTCConfiguration ToRTCConfiguration(this WebRtcConfiguration config)
         {
-             RTCConfiguration rtcConfig = default; // 기본값 사용
-             if (config?.iceServers != null && config.iceServers.Count > 0) {
-                 rtcConfig.iceServers = config.iceServers.ToArray();
-             }
-             // 필요시 다른 설정 추가 (예: iceTransportPolicy)
-             // rtcConfig.iceTransportPolicy = RTCIceTransportPolicy.All; // 예시
-             return rtcConfig;
+            RTCConfiguration rtcConfig = default; // 기본값 사용
+            if (config?.iceServers != null && config.iceServers.Count > 0)
+            {
+                rtcConfig.iceServers = config.iceServers.ToArray();
+            }
+            // 필요시 다른 설정 추가 (예: iceTransportPolicy)
+            // rtcConfig.iceTransportPolicy = RTCIceTransportPolicy.All; // 예시
+            return rtcConfig;
         }
     }
 }
