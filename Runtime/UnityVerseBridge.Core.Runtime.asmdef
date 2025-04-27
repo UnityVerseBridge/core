@@ -2,8 +2,7 @@
     "name": "UnityVerseBridge.Core.Runtime",
     "rootNamespace": "UnityVerseBridge.Core",
     "references": [
-        "Unity.WebRTC",
-        "endel.nativewebsocket"
+        "Unity.WebRTC"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

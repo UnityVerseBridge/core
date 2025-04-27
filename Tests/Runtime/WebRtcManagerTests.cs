@@ -5,10 +5,9 @@ using UnityEngine;
 using UnityEngine.TestTools; // [UnityTest] 사용 시 필요
 using System.Collections;
 using System.Collections.Generic;
-using UnityVerseBridge.Core; // WebRtcManager
 using UnityVerseBridge.Core.Signaling; // ISignalingClient
 using UnityVerseBridge.Core.Signaling.Data; // SignalingMessageBase 등
-using UnityVerseBridge.Core.Common; // WebRtcConfiguration
+using UnityVerseBridge.Core.DataChannel.Data; // TouchData 사용 위해
 using System.Linq;
 
 namespace UnityVerseBridge.Core.Tests.Runtime
@@ -32,12 +31,28 @@ namespace UnityVerseBridge.Core.Tests.Runtime
             public event Action OnDisconnected;
             public event Action<string, string> OnSignalingMessageReceived;
 
+            /// <summary>
+            /// ISignalingClient 인터페이스 구현을 위한 InitializeAndConnect 메서드입니다.
+            /// Mock 객체에서는 실제 연결 대신 상태를 설정하고 이벤트를 발생시킬 수 있습니다.
+            /// </summary>
+            /// <param name="adapter">사용될 WebSocket 어댑터 (Mock에서는 사용 안 함)</param>
+            /// <param name="url">접속할 서버 URL (기록만 할 수 있음)</param>
+            /// <returns>완료된 Task</returns>
+            public Task InitializeAndConnect(IWebSocketClient adapter, string url)
+            {
+                Debug.Log($"[Mock] InitializeAndConnect called with URL: {url} and Adapter: {adapter?.GetType().Name ?? "null"}");
+                // Connect 메서드와 유사하게 처리하거나, 필요에 따라 상태만 설정
+                ConnectCalled = true; // Connect 호출된 것으로 간주
+                ConnectUrl = url;
+                IsConnected = true;   // 즉시 연결 성공 상태로 시뮬레이션
+                OnConnected?.Invoke(); // 연결 성공 이벤트 발생
+                return Task.CompletedTask; // 즉시 완료된 Task 반환
+            }
+
             public Task Connect(string url)
             {
-                ConnectCalled = true;
-                ConnectUrl = url;
-                IsConnected = true; // 연결 성공 시뮬레이션
-                OnConnected?.Invoke(); // 연결 이벤트 발생
+                Debug.LogWarning("[Mock] Connect called, but InitializeAndConnect should be used for setup.");
+                // return InitializeAndConnect(null, url); // 또는 이렇게 연결하거나 예외 발생
                 return Task.CompletedTask;
             }
 
@@ -71,6 +86,16 @@ namespace UnityVerseBridge.Core.Tests.Runtime
             public void TriggerConnected() => OnConnected?.Invoke();
             public void TriggerDisconnected() => OnDisconnected?.Invoke();
             public void TriggerMessageReceived(string type, string jsonData) => OnSignalingMessageReceived?.Invoke(type, jsonData);
+
+            /// <summary>
+            /// ISignalingClient 인터페이스 구현을 위한 DispatchMessages 메서드입니다.
+            /// Mock 객체에서는 특별한 동작 없이 로그만 남기거나 비워둘 수 있습니다.
+            /// </summary>
+            public void DispatchMessages()
+            {
+                // Debug.Log("[Mock] DispatchMessages() Called"); // 필요시 로그 추가
+                // 실제 로직은 없음 (NativeWebSocketAdapter 등이 실제 처리를 함)
+            }
         }
 
 
@@ -111,13 +136,21 @@ namespace UnityVerseBridge.Core.Tests.Runtime
             // Setup에서 InitializeForTest 호출됨
             mockSignalingClient.Reset(); // Mock 상태 초기화
             mockSignalingClient.IsConnected = true; // <-- 시그널링 연결 상태로 설정!
+            webRtcManager.InitializeForTest(mockSignalingClient, testConfiguration); // Setup에서 호출되지만 명시적으로
+            mockSignalingClient.TriggerConnected(); // 연결 상태 및 이벤트 발생 보장
+
+            int initialSendCount = mockSignalingClient.SendMessageCallCount;
 
             // Act
             webRtcManager.StartPeerConnection();
 
-            // Coroutine이 SendMessage를 호출할 시간을 주기 위해 한 프레임 이상 대기
-            yield return new WaitForSeconds(0.1f);
-            // 필요하다면 특정 상태 변화를 기다리는 yield return new WaitUntil(() => mockSignalingClient.SendMessageCallCount > 0); 사용
+            // Offer 메시지가 전송될 때까지 대기 (타임아웃 포함)
+            float timeout = Time.time + 3.0f;
+            yield return new WaitUntil(() => mockSignalingClient.SentMessages.Any(msg => msg.type == "offer") || Time.time > timeout);
+
+            // Assert
+            Assert.Less(Time.time, timeout, "Test timed out waiting for Offer message.");
+            Assert.IsTrue(mockSignalingClient.SentMessages.Any(msg => msg.type == "offer"), "An 'offer' message should have been sent.");
 
             // Assert
             // SendMessage가 최소 1번 이상 호출되었는지 (Offer + ICE Candidates)
@@ -144,34 +177,91 @@ namespace UnityVerseBridge.Core.Tests.Runtime
         public IEnumerator HandleSignalingMessage_OfferReceived_ShouldTryToSendAnswer()
         {
             // Arrange
-            // webRtcManager.InitializeForTest(mockSignalingClient, testConfiguration); // Setup에서 이미 호출됨
             mockSignalingClient.Reset(); // Mock 상태 초기화
             mockSignalingClient.IsConnected = true; // 연결 상태 설정
+            // InitializeForTest는 Setup에서 호출됨
+
+            string offerSdp = "v=0\r\no=- 12345 67890 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"; // 유효한 SDP 형식
+            string offerJson = JsonUtility.ToJson(new SessionDescriptionMessage("offer", offerSdp));
+            int initialSendCount = mockSignalingClient.SendMessageCallCount;
 
             // Act
-            webRtcManager.StartPeerConnection();
+            mockSignalingClient.TriggerMessageReceived("offer", offerJson); // Offer 수신 시뮬레이션
+            // !!! 이 메서드 안에 webRtcManager.StartPeerConnection(); 호출이 있으면 안 됨 !!!
 
             // Coroutine 완료 및 ICE Candidate 생성 시간 고려하여 잠시 대기
             // 정확한 대기를 위해서는 WebRtcManager에서 Offer 전송 완료 이벤트를 발생시키는 것이 가장 좋음
-            // 여기서는 충분히 기다린다고 가정 (예: 0.1초)
-            yield return new WaitForSeconds(0.1f); // 또는 WaitUntil 사용
+            float timeout = Time.time + 3.0f; // 3초 타임아웃
+            yield return new WaitUntil(() => mockSignalingClient.SentMessages.Any(msg => msg.type == "answer") || Time.time > timeout);
+
+             Assert.Less(Time.time, timeout, "Test timed out waiting for Answer message."); // 타임아웃 메시지 확인
+
+            // SendMessage가 최소 한 번 호출되었는지 확인 (Answer + ICE 가능성)
+            // Assert.Greater(mockSignalingClient.SendMessageCallCount, initialSendCount, "SendMessage should have been called for Answer.");
+
+            // 전송된 메시지 목록에 'answer' 타입 메시지가 있는지 확인
+            bool answerWasSent = mockSignalingClient.SentMessages.Any(msg => msg.type == "answer");
+            Assert.IsTrue(answerWasSent, "An 'answer' message should have been sent."); // <--- 실패 메시지 문자열 수정!
+
+            // (선택 사항) Answer 메시지 내용 검증
+            if (answerWasSent)
+            {
+                var answerMessage = mockSignalingClient.SentMessages.FirstOrDefault(msg => msg.type == "answer") as SessionDescriptionMessage;
+                Assert.IsNotNull(answerMessage, "Answer message object should exist.");
+                // Assert.IsNotEmpty(answerMessage.sdp, "Answer SDP should not be empty.");
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator SignalingConnected_Should_AutomaticallyStartPeerConnectionAndSendOffer()
+        {
+            // Arrange
+            // Setup에서 WebRtcManager와 Mock 초기화 완료 가정
+            // webRtcManager.InitializeForTest(mockSignalingClient, testConfiguration); // Setup에서 호출됨
+            mockSignalingClient.Reset();
+            // 초기 상태는 시그널링 연결 안 됨
+            mockSignalingClient.IsConnected = false;
+            int initialSendCount = mockSignalingClient.SendMessageCallCount;
+
+            // Act
+            // 시그널링 연결 성공 이벤트를 강제로 발생시킴
+            mockSignalingClient.TriggerConnected(); // 이 호출로 인해 mockClient.IsConnected = true 가 되고 OnConnected 이벤트 발생 -> WebRtcManager.HandleSignalingConnected 호출 -> StartPeerConnection 호출 기대
+
+            // StartPeerConnection 내부의 CreateOfferAndSend 코루틴이 실행되고
+            // Offer 메시지를 SendMessage 할 때까지 기다림
+            float timeout = Time.time + 3.0f; // 3초 타임아웃
+            yield return new WaitUntil(() => mockSignalingClient.SentMessages.Any(msg => msg.type == "offer") || Time.time > timeout);
 
             // Assert
-            // SendMessage가 최소 1번 이상 호출되었는지 (Offer + ICE Candidates)
-            Assert.GreaterOrEqual(mockSignalingClient.SendMessageCallCount, 1, "SendMessage should have been called at least once.");
+            Assert.Less(Time.time, timeout, "Test timed out waiting for Offer to be sent automatically.");
+            Assert.IsTrue(mockSignalingClient.SentMessages.Any(msg => msg.type == "offer"), "An 'offer' message should have been sent automatically after signaling connected.");
+        }
 
-            // 전송된 메시지 목록(SentMessages) 중에 'offer' 타입 메시지가 있는지 확인
-            bool offerWasSent = mockSignalingClient.SentMessages.Any(msg => msg.type == "offer");
-            Assert.IsTrue(offerWasSent, "An 'offer' message should have been sent.");
+        [Test] // 이 테스트는 동기적으로 호출 가능 여부만 확인하므로 [Test] 사용 가능
+        public void SendDataChannelMessage_WhenConnected_ShouldNotThrowError()
+        {
+            // Arrange
+            // Setup에서 초기화 완료 가정
+            mockSignalingClient.Reset();
+            mockSignalingClient.IsConnected = true;
+            // 중요: WebRTC 연결 및 데이터 채널이 열렸다고 가정하는 상태 설정 필요
+            // 이는 Mocking 한계로 정확히 시뮬레이션 어려움.
+            // WebRtcManager 내부 상태를 직접 설정하거나, 관련 public 속성(IsWebRtcConnected, IsDataChannelOpen)을 테스트용으로 수정 필요.
+            // 여기서는 IsDataChannelOpen 속성이 true라고 가정. (실제로는 이 가정이 필요 없도록 테스트하거나, IsDataChannelOpen 상태를 설정할 방법을 찾아야 함)
+            // 예시: Reflection으로 내부 dataChannel 상태를 Open으로 설정 (복잡하고 비권장)
+            // 또는 WebRtcManager에 테스트용 메서드 추가: webRtcManager.SetDataChannelStateForTest(RTCDataChannelState.Open);
 
-            // (선택 사항) Offer 메시지 내용 검증
-            var offerMessage = mockSignalingClient.SentMessages.FirstOrDefault(msg => msg.type == "offer") as SessionDescriptionMessage;
-            Assert.IsNotNull(offerMessage, "Offer message object should exist.");
-            // Assert.IsNotEmpty(offerMessage.sdp, "Offer SDP should not be empty."); // SDP 내용 검증
+            var testMessage = new TouchData(1, DataChannel.Data.TouchPhase.Began, Vector2.one * 0.5f); // 샘플 데이터
+            int initialSignalingSendCount = mockSignalingClient.SendMessageCallCount;
 
-            // TODO: Answer 수신 시 RemoteDescription 설정 로직 검증 (Mocking 한계로 어려움)
-            // TODO: ICE Candidate 수신 시 AddIceCandidate 호출 로직 검증 (Mocking 한계로 어려움)
-            // TODO: ICE Candidate 생성 시 SendMessage 호출 검증 (PeerConnection 이벤트 Mocking 필요)
+            // Act & Assert
+            // SendDataChannelMessage 호출 시 예외가 발생하지 않는지 확인
+            Assert.DoesNotThrow(() => {
+                webRtcManager.SendDataChannelMessage(testMessage);
+            }, "SendDataChannelMessage should not throw an exception when DC is assumed open.");
+
+            // 시그널링으로 메시지가 가지 않았는지 확인 (데이터 채널로 가야 함)
+            Assert.AreEqual(initialSignalingSendCount, mockSignalingClient.SendMessageCallCount, "SendDataChannelMessage should not send messages via signaling.");
         }
     }
 }

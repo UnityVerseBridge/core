@@ -45,5 +45,10 @@ namespace UnityVerseBridge.Core.Signaling
 
         // 필요시 연결 상태를 확인하는 속성 추가 가능
         bool IsConnected { get; }
+
+        void DispatchMessages();
+
+        // 이 메서드는 보통 외부 Initializer가 SignalingClient 생성 후 호출
+        Task InitializeAndConnect(IWebSocketClient adapter, string url);
     }
 }
