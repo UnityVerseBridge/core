@@ -42,7 +42,14 @@ namespace UnityVerseBridge.Core.Samples.SimpleConnection
             }
 
             // 버튼 리스너 추가
-            connectSignalingButton?.onClick.AddListener(webRtcManager.ConnectSignaling); // 직접 연결
+            // connectSignalingButton?.onClick.AddListener(webRtcManager.ConnectSignaling); // 직접 연결
+            connectSignalingButton?.onClick.AddListener(() => {
+                if (webRtcManager != null)
+                {
+                    // WebRtcManager 내부의 signalingServerUrl을 사용하도록 변경
+                    _ = webRtcManager.StartSignalingAndPeerConnection(webRtcManager.SignalingServerUrl);
+                }
+            });
             startPeerConnectionButton?.onClick.AddListener(webRtcManager.StartPeerConnection); // 직접 연결
             sendMessageButton?.onClick.AddListener(SendMessageFromInput);
 
