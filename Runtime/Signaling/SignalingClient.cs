@@ -127,8 +127,10 @@ namespace UnityVerseBridge.Core.Signaling
              // 이 부분은 이전과 동일 (JSON 파싱 및 OnSignalingMessageReceived 호출)
             try {
                 var messageJson = System.Text.Encoding.UTF8.GetString(bytes);
+                Debug.Log($"[SignalingClient] Raw message received: {messageJson}");
                 var baseMessage = JsonUtility.FromJson<SignalingMessageBase>(messageJson);
                 if (baseMessage != null && !string.IsNullOrEmpty(baseMessage.type)) {
+                    Debug.Log($"[SignalingClient] Message type: {baseMessage.type}");
                     OnSignalingMessageReceived?.Invoke(baseMessage.type, messageJson);
                 } else { Debug.LogWarning($"[SignalingClient] Received message without type: {messageJson}"); }
             } catch (Exception e) { Debug.LogError($"[SignalingClient] Error parsing message: {e.Message}"); }
