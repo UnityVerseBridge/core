@@ -1,14 +1,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
-using System.Linq; // FirstOrDefault() 사용 위해 추가!
 using UnityEngine;
 using Unity.WebRTC;
 using UnityVerseBridge.Core.Signaling;
 using UnityVerseBridge.Core.Signaling.Data;
-using UnityVerseBridge.Core.DataChannel.Data;
-using UnityVerseBridge.Core; // WebRtcConfiguration, WebRtcConfigurationExtensions 사용 가정
 
 namespace UnityVerseBridge.Core
 {
@@ -19,6 +17,10 @@ namespace UnityVerseBridge.Core
         [SerializeField] private WebRtcConfiguration configuration = new WebRtcConfiguration();
         [Tooltip("접속할 시그널링 서버의 주소입니다.")]
         [SerializeField] private string signalingServerUrl = "ws://localhost:8080";
+        [Tooltip("이 WebRtcManager 인스턴스가 Offer를 생성하는 역할인지 여부입니다.")]
+        [SerializeField] public bool isOfferer = true; // 역할 구분 플래그
+        [Tooltip("시그널링 연결 후 자동으로 PeerConnection을 시작할지 여부입니다. Register 완료 후 수동 시작이 필요한 경우 false로 설정하세요.")]
+        [SerializeField] public bool autoStartPeerConnection = false; // 자동 시작 옵션
 
         [Header("State (Read-only in Inspector)")]
         [SerializeField] private bool _isSignalingConnected = false;
@@ -29,7 +31,9 @@ namespace UnityVerseBridge.Core
         private ISignalingClient signalingClient;
         private RTCPeerConnection peerConnection;
         private RTCDataChannel dataChannel;
-        private Coroutine _peerConnectionCoroutine;
+        private Coroutine _negotiationCoroutine; // SDP offer/answer/renegotiation 코루틴 통합
+        private bool _isNegotiationCoroutineRunning = false; // 협상 코루틴 실행 여부 플래그
+        private MediaStream sendStream; // 보낼 트랙들을 담을 스트림
 
         // --- Public Events ---
         public event Action OnSignalingConnected;
@@ -40,6 +44,10 @@ namespace UnityVerseBridge.Core
         public event Action OnDataChannelClosed;
         public event Action<string> OnDataChannelMessageReceived;
         public event Action<MediaStreamTrack> OnTrackReceived;
+        /// <summary>
+        /// 원격 피어로부터 비디오 트랙을 수신했을 때 발생하는 이벤트입니다.
+        /// </summary>
+        public event Action<VideoStreamTrack> OnVideoTrackReceived; // 비디오 트랙 전용 이벤트 추가
 
         // --- Public Properties ---
         public bool IsSignalingConnected => _isSignalingConnected;
@@ -146,6 +154,13 @@ namespace UnityVerseBridge.Core
 
         public void StartPeerConnection()
         {
+            // Answerer는 StartPeerConnection을 호출하면 안됨
+            if (!isOfferer)
+            {
+                Debug.LogWarning("[WebRtcManager] StartPeerConnection called but this peer is Answerer. Ignoring...");
+                return;
+            }
+            
             if (!IsSignalingConnected)
             {
                 Debug.LogError("[WebRtcManager] Cannot start peer connection: signaling is not connected.");
@@ -156,7 +171,7 @@ namespace UnityVerseBridge.Core
                 Debug.LogWarning($"[WebRtcManager] Peer connection already exists or is in progress (State: {peerConnection.ConnectionState}).");
                 return;
             }
-            if (_peerConnectionCoroutine != null)
+            if (_isNegotiationCoroutineRunning) // _negotiationCoroutine 대신 플래그 사용
             {
                 Debug.LogWarning("[WebRtcManager] Peer connection process already running.");
                 return;
@@ -165,7 +180,7 @@ namespace UnityVerseBridge.Core
             Debug.Log("[WebRtcManager] Starting Peer Connection process as offerer...");
             CreatePeerConnection();
             CreateDataChannel();
-            _peerConnectionCoroutine = StartCoroutine(CreateOfferAndSend());
+            StartNegotiationCoroutine(CreateOfferAndSend());
         }
 
         public void SendDataChannelMessage(object messageData)
@@ -194,10 +209,11 @@ namespace UnityVerseBridge.Core
         public async void Disconnect()
         {
             Debug.Log("[WebRtcManager] Disconnect called. Cleaning up...");
-            if (_peerConnectionCoroutine != null)
+            if (_negotiationCoroutine != null)
             {
-                StopCoroutine(_peerConnectionCoroutine);
-                _peerConnectionCoroutine = null;
+                StopCoroutine(_negotiationCoroutine);
+                _negotiationCoroutine = null;
+                _isNegotiationCoroutineRunning = false;
             }
 
             dataChannel?.Close();
@@ -205,6 +221,92 @@ namespace UnityVerseBridge.Core
 
             await DisconnectSignaling();
             Debug.Log("[WebRtcManager] Disconnect finished.");
+        }
+
+        // 트랙 관리를 위한 Dictionary 추가
+        private readonly Dictionary<MediaStreamTrack, RTCRtpSender> trackSenders = new Dictionary<MediaStreamTrack, RTCRtpSender>();
+
+        public void AddVideoTrack(VideoStreamTrack videoTrack)
+        {
+            if (peerConnection == null)
+            {
+                Debug.LogError("[WebRtcManager] PeerConnection is not initialized. Cannot add track.");
+                return;
+            }
+            if (videoTrack == null)
+            {
+                Debug.LogError("[WebRtcManager] Cannot add null video track.");
+                return;
+            }
+
+            Debug.Log($"[WebRtcManager] Adding video track: {videoTrack.Id}");
+            RTCRtpSender sender = peerConnection.AddTrack(videoTrack);
+
+            if (sender == null)
+            {
+                Debug.LogError("[WebRtcManager] Failed to add video track to PeerConnection.");
+            }
+            else
+            {
+                trackSenders[videoTrack] = sender; // 트랙과 sender 매핑 저장
+                Debug.Log("[WebRtcManager] Video track added successfully to peer connection. Renegotiation might be needed.");
+                // OnNegotiationNeeded가 자동으로 호출될 것을 기대하지만, 타이밍 이슈가 있다면
+                // 여기서 명시적으로 재협상을 시작하거나, 약간의 지연 후 시작하는 것을 고려할 수 있음.
+                // 예: StartCoroutine(DelayedHandleNegotiationNeeded());
+                // 또는, HandleNegotiationNeeded 내부에서 코루틴 상태를 더 철저히 검사.
+            }
+        }
+
+        public void RemoveTrack(MediaStreamTrack track)
+        {
+            if (peerConnection == null || track == null)
+            {
+                Debug.LogError("[WebRtcManager] Cannot remove track: PeerConnection or track is null.");
+                return;
+            }
+
+            if (trackSenders.TryGetValue(track, out RTCRtpSender sender))
+            {
+                peerConnection.RemoveTrack(sender);
+                trackSenders.Remove(track);
+                Debug.Log($"[WebRtcManager] Removed track: {track.Id}");
+            }
+            else
+            {
+                Debug.LogWarning($"[WebRtcManager] Track {track.Id} not found in senders.");
+            }
+        }
+
+        public async Task StartSignalingAndPeerConnection(string newServerUrl)
+        {
+            if (signalingClient == null)
+            {
+                Debug.LogError("[WebRtcManager] StartSignalingAndPeerConnection: SignalingClient is not set. Call SetupSignaling first.");
+                return;
+            }
+
+            // 이미 연결 시도 중이거나 WebRTC까지 연결된 경우 중복 실행 방지
+            if ( (signalingClient.IsConnected && _isSignalingConnected) || _isNegotiationCoroutineRunning || IsWebRtcConnected)
+            {
+                Debug.LogWarning($"[WebRtcManager] StartSignalingAndPeerConnection: Already connected or negotiation in progress. Current SignalingClient.IsConnected: {signalingClient.IsConnected}, _isSignalingConnected(ManagerFlag): {_isSignalingConnected}, CoroutineRunning: {_isNegotiationCoroutineRunning}, WebRTC Connected: {IsWebRtcConnected}");
+                if(signalingClient.IsConnected && _isSignalingConnected) OnSignalingConnected?.Invoke(); // 이미 시그널링 연결된 경우, 연결 후 로직 실행 유도
+                return;
+            }
+            
+            this.signalingServerUrl = newServerUrl; // 내부 URL 업데이트
+            Debug.Log($"[WebRtcManager] Set new server URL to: {this.signalingServerUrl}");
+
+            Debug.Log($"[WebRtcManager] StartSignalingAndPeerConnection: Attempting to connect to {newServerUrl}");
+            try
+            {
+                // ISignalingClient의 Connect를 호출.
+                // 성공하면 OnSignalingConnected 이벤트가 발생하고, HandleSignalingConnected에서 StartPeerConnection()이 호출됨.
+                await signalingClient.Connect(newServerUrl);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[WebRtcManager] StartSignalingAndPeerConnection: Exception during signalingClient.Connect: {e.Message}");
+            }
         }
 
         private async Task DisconnectSignaling()
@@ -307,8 +409,22 @@ namespace UnityVerseBridge.Core
             Debug.Log("[WebRtcManager] Signaling Connected!");
             OnSignalingConnected?.Invoke();
 
-            Debug.Log("[WebRtcManager] Automatically starting Peer Connection as offerer...");
-            StartPeerConnection();
+            if (isOfferer && autoStartPeerConnection)
+            {
+                Debug.Log("[WebRtcManager] Acting as Offerer with autoStartPeerConnection=true. Automatically starting Peer Connection...");
+                StartPeerConnection(); // Offerer이고 autoStart가 true일 경우에만 자동으로 PeerConnection 시작
+            }
+            else if (isOfferer && !autoStartPeerConnection)
+            {
+                Debug.Log("[WebRtcManager] Acting as Offerer with autoStartPeerConnection=false. Waiting for manual StartPeerConnection() call...");
+            }
+            else
+            {
+                Debug.Log("[WebRtcManager] Acting as Answerer. Waiting for Offer...");
+                // Answerer는 Offer를 기다리므로 여기서 자동으로 StartPeerConnection을 호출하지 않음
+                // 필요하다면 PeerConnection 객체만 미리 생성해둘 수 있음 (CreatePeerConnection() 호출)
+                // CreatePeerConnection(); // Offer 수신 시 어차피 생성되므로, 여기서 미리 할 필요는 없을 수도 있음
+            }
         }
 
         private void HandleSignalingDisconnected()
@@ -320,29 +436,52 @@ namespace UnityVerseBridge.Core
 
         private void HandleSignalingMessage(string type, string jsonData)
         {
-            if (peerConnection == null && type != "offer")
+            if (peerConnection == null && type != "offer" && isOfferer) // Answerer는 Offer를 받기 전 PC가 없을 수 있음
             {
-                Debug.LogWarning($"[WebRtcManager] Received '{type}' before PeerConnection init. Ignoring.");
+                Debug.LogWarning($"[WebRtcManager] Received '{type}' before PeerConnection init (Offerer). Ignoring.");
                 return;
             }
-            if (_peerConnectionCoroutine != null && (type == "offer" || type == "answer"))
+            if (peerConnection == null && type == "offer" && !isOfferer) // Answerer가 Offer를 받을 때 PC가 없다면 생성
             {
-                Debug.LogWarning($"[WebRtcManager] Receiving '{type}' while another process is running. Stopping previous.");
-                StopCoroutine(_peerConnectionCoroutine);
-                _peerConnectionCoroutine = null;
+                Debug.Log("[WebRtcManager] Answerer received Offer, creating PeerConnection.");
+                CreatePeerConnection(); 
+                // DataChannel도 여기서 생성할 수 있으나, Offer에 이미 DataChannel 정보가 포함되어 올 것이므로
+                // OnDataChannel 콜백에서 처리하는 것이 일반적. 여기서는 일단 PC만 생성.
             }
 
-            Debug.Log($"[WebRtcManager] Handling Signaling Message | Type: {type}");
+            if (_isNegotiationCoroutineRunning && (type == "offer" || type == "answer"))
+            {
+                Debug.LogWarning($"[WebRtcManager] Receiving '{type}' while another negotiation is running. Stopping previous.");
+                if (_negotiationCoroutine != null) StopCoroutine(_negotiationCoroutine);
+                _isNegotiationCoroutineRunning = false; 
+                _negotiationCoroutine = null;
+            }
+
+            Debug.Log($"[WebRtcManager] Handling Signaling Message | Type: {type}, Role: {(isOfferer ? "Offerer" : "Answerer")}");
             try
             {
                 switch (type)
                 {
                     case "offer":
-                        CreatePeerConnection();
-                        _peerConnectionCoroutine = StartCoroutine(HandleOfferAndSendAnswer(JsonUtility.FromJson<SessionDescriptionMessage>(jsonData)));
+                        if (!isOfferer) // 자신이 Answerer일 경우에만 Offer 처리
+                        {
+                            if (peerConnection == null) CreatePeerConnection(); // 방어 코드
+                            StartNegotiationCoroutine(HandleOfferAndSendAnswer(JsonUtility.FromJson<SessionDescriptionMessage>(jsonData)));
+                        }
+                        else
+                        {
+                            Debug.LogWarning("[WebRtcManager] Offerer received an Offer. Ignoring (Glare handling not implemented).");
+                        }
                         break;
                     case "answer":
-                        _peerConnectionCoroutine = StartCoroutine(HandleAnswer(JsonUtility.FromJson<SessionDescriptionMessage>(jsonData)));
+                        if (isOfferer) // 자신이 Offerer일 경우에만 Answer 처리
+                        {
+                            StartNegotiationCoroutine(HandleAnswer(JsonUtility.FromJson<SessionDescriptionMessage>(jsonData)));
+                        }
+                        else
+                        {
+                            Debug.LogWarning("[WebRtcManager] Answerer received an Answer. Ignoring.");
+                        }
                         break;
                     case "ice-candidate":
                         HandleIceCandidate(JsonUtility.FromJson<IceCandidateMessage>(jsonData));
@@ -355,8 +494,28 @@ namespace UnityVerseBridge.Core
             catch (Exception e)
             {
                 Debug.LogError($"[WebRtcManager] Error handling signaling message (Type: {type}): {e.Message}\nData: {jsonData}");
-                _peerConnectionCoroutine = null;
+                _isNegotiationCoroutineRunning = false; 
+                _negotiationCoroutine = null;
             }
+        }
+        
+        // --- Helper to manage negotiation coroutine ---
+        private void StartNegotiationCoroutine(IEnumerator coroutineLogic)
+        {
+            if (_isNegotiationCoroutineRunning)
+            {
+                Debug.LogWarning("[WebRtcManager] Attempted to start a new negotiation while one is already running. Aborting new one.");
+                return;
+            }
+            _negotiationCoroutine = StartCoroutine(ExecuteNegotiation(coroutineLogic));
+        }
+
+        private IEnumerator ExecuteNegotiation(IEnumerator coroutineLogic)
+        {
+            _isNegotiationCoroutineRunning = true;
+            yield return coroutineLogic; 
+            _isNegotiationCoroutineRunning = false;
+            _negotiationCoroutine = null; // 참조 해제
         }
 
         // --- WebRTC Logic Coroutines ---
@@ -365,7 +524,6 @@ namespace UnityVerseBridge.Core
             if (peerConnection == null)
             {
                 Debug.LogError("PC null in CreateOffer");
-                _peerConnectionCoroutine = null;
                 yield break;
             }
             Debug.Log("[WebRtcManager] Creating Offer...");
@@ -374,7 +532,6 @@ namespace UnityVerseBridge.Core
             if (offerOp.IsError)
             {
                 Debug.LogError($"Failed OfferOp: {offerOp.Error.message}");
-                _peerConnectionCoroutine = null;
                 yield break;
             }
             var offerDesc = offerOp.Desc;
@@ -384,7 +541,6 @@ namespace UnityVerseBridge.Core
             if (localDescOp.IsError)
             {
                 Debug.LogError($"Failed LocalDesc(Offer): {localDescOp.Error.message}");
-                _peerConnectionCoroutine = null;
                 yield break;
             }
             Debug.Log("[WebRtcManager] Sending Offer...");
@@ -397,7 +553,6 @@ namespace UnityVerseBridge.Core
             {
                 Debug.LogError($"Error sending offer: {e.Message}");
             }
-            _peerConnectionCoroutine = null;
         }
 
         private IEnumerator HandleOfferAndSendAnswer(SessionDescriptionMessage offerMessage)
@@ -405,7 +560,6 @@ namespace UnityVerseBridge.Core
             if (peerConnection == null)
             {
                 Debug.LogError("PC null in HandleOffer");
-                _peerConnectionCoroutine = null;
                 yield break;
             }
             Debug.Log("[WebRtcManager] Setting Remote Desc (Offer)...");
@@ -415,7 +569,6 @@ namespace UnityVerseBridge.Core
             if (remoteDescOp.IsError)
             {
                 Debug.LogError($"Failed RemoteDesc(Offer): {remoteDescOp.Error.message}");
-                _peerConnectionCoroutine = null;
                 yield break;
             }
             Debug.Log("[WebRtcManager] Creating Answer...");
@@ -424,7 +577,6 @@ namespace UnityVerseBridge.Core
             if (answerOp.IsError)
             {
                 Debug.LogError($"Failed CreateAnswer: {answerOp.Error.message}");
-                _peerConnectionCoroutine = null;
                 yield break;
             }
             var answerDesc = answerOp.Desc;
@@ -434,7 +586,6 @@ namespace UnityVerseBridge.Core
             if (localDescOp.IsError)
             {
                 Debug.LogError($"Failed LocalDesc(Answer): {localDescOp.Error.message}");
-                _peerConnectionCoroutine = null;
                 yield break;
             }
             Debug.Log("[WebRtcManager] Sending Answer...");
@@ -447,7 +598,6 @@ namespace UnityVerseBridge.Core
             {
                 Debug.LogError($"Error sending answer: {e.Message}");
             }
-            _peerConnectionCoroutine = null;
         }
 
         private IEnumerator HandleAnswer(SessionDescriptionMessage answerMessage)
@@ -455,7 +605,6 @@ namespace UnityVerseBridge.Core
             if (peerConnection == null)
             {
                 Debug.LogError("PC null in HandleAnswer");
-                _peerConnectionCoroutine = null;
                 yield break;
             }
             Debug.Log("[WebRtcManager] Setting Remote Desc (Answer)...");
@@ -472,66 +621,69 @@ namespace UnityVerseBridge.Core
                 Debug.Log("[WebRtcManager] Remote Description (Answer) Set Successfully.");
             }
             // --- 수정 완료 ---
-            _peerConnectionCoroutine = null;
         }
 
-        // --- WebRTC Event Handlers ---
+        // --- PeerConnection Event Handlers ---
         private void HandleIceCandidate(IceCandidateMessage candidateMessage)
         {
-            if (peerConnection == null || peerConnection.SignalingState == RTCSignalingState.Closed)
+            if (peerConnection == null || string.IsNullOrEmpty(candidateMessage.candidate))
             {
-                Debug.LogWarning($"PC not ready/closed. Ignoring ICE candidate.");
+                Debug.LogWarning("[WebRtcManager] PeerConnection is null or candidate is empty. Cannot add ICE candidate.");
                 return;
-            }
-            if (candidateMessage == null || string.IsNullOrEmpty(candidateMessage.candidate))
-            {
-                Debug.LogWarning("Received null/empty ICE candidate msg.");
-                return;
-            }
-            // RemoteDescription 설정 전에 후보가 도착할 수 있음에 유의 (큐잉 메커니즘 필요)
-            // RTCSessionDescription은 struct라 null 비교 불가, sdp가 null/empty면 아직 설정 안 된 것으로 간주
-            if (string.IsNullOrEmpty(peerConnection.RemoteDescription.sdp))
-            {
-                Debug.LogWarning("Remote description not set yet. Queuing ICE candidate is recommended.");
-                /* return; */ // 임시로 진행
             }
 
+            // "a=end-of-candidates"는 빈 candidate 문자열로 처리될 수 있음 (Unity WebRTC 패키지에 따라 다름)
+            // 여기서는 명시적으로 빈 candidate를 허용하지 않음 (필요 시 변경)
+            if (candidateMessage.candidate == "a=end-of-candidates")
+            {
+                 Debug.Log("[WebRtcManager] Received end-of-candidates marker. No action needed for AddIceCandidate.");
+                 return;
+            }
+
+            RTCIceCandidateInit candidateInit = new RTCIceCandidateInit
+            {
+                candidate = candidateMessage.candidate,
+                sdpMid = candidateMessage.sdpMid,
+                sdpMLineIndex = candidateMessage.sdpMLineIndex
+            };
+            
+            Debug.Log($"[WebRtcManager] Attempting to add ICE candidate: {candidateMessage.candidate.Substring(0, Math.Min(30, candidateMessage.candidate.Length))}...");
             try
             {
-                RTCIceCandidate candidate = candidateMessage.ToRTCIceCandidate();
-                string candidatePreview = candidate.Candidate?.Substring(0, Math.Min(30, candidate.Candidate?.Length ?? 0));
-                Debug.Log($"[WebRtcManager] Attempting to add ICE candidate: {candidatePreview}...");
-                peerConnection.AddIceCandidate(candidate);
-            }
-            catch (RTCErrorException e)
-            {
-                Debug.LogError($"[WebRtcManager] RTCError adding ICE: {e.Message}. State: {peerConnection?.SignalingState}");
+                // RTCIceCandidate 객체로 변환하여 전달
+                RTCIceCandidate rtcIceCandidate = new RTCIceCandidate(candidateInit);
+                peerConnection.AddIceCandidate(rtcIceCandidate);
             }
             catch (Exception e)
             {
-                Debug.LogError($"[WebRtcManager] Exception adding ICE: {e.Message}");
+                 Debug.LogError($"[WebRtcManager] Exception adding ICE: {e.GetType().Name}, candidate:{candidateMessage.candidate}\nsdpMid:{candidateMessage.sdpMid}\nsdpMLineIndex:{candidateMessage.sdpMLineIndex}\nError: {e.Message}");
             }
         }
 
         private void HandleIceCandidateGenerated(RTCIceCandidate candidate)
         {
+            if (signalingClient == null || !IsSignalingConnected)
+            {
+                Debug.LogWarning("[WebRtcManager] Signaling client is null or not connected when ICE candidate was generated. Candidate not sent.");
+                return;
+            }
             if (candidate != null && !string.IsNullOrEmpty(candidate.Candidate))
             {
-                var candidateMsg = IceCandidateMessage.FromRTCIceCandidate(candidate);
-                if (signalingClient != null && signalingClient.IsConnected)
-                {
-                    _ = signalingClient.SendMessage(candidateMsg); // await 제거됨
-                }
-                else
-                {
-                    Debug.LogWarning($"[WebRtcManager] Signaling client is null or not connected when ICE candidate was generated. Candidate not sent.");
-                }
+                var iceMsg = new IceCandidateMessage(
+                    candidate.Candidate,
+                    candidate.SdpMid,
+                    candidate.SdpMLineIndex ?? 0
+                );
+                Debug.Log($"[WebRtcManager] Sending ICE Candidate: {candidate.Candidate.Substring(0, Math.Min(30, candidate.Candidate.Length))}...");
+                _ = signalingClient.SendMessage(iceMsg);
             }
         }
 
         private void HandleIceConnectionChange(RTCIceConnectionState state)
         {
+            _peerConnectionState = peerConnection.ConnectionState; // 상태 업데이트
             Debug.Log($"[WebRtcManager] ICE Connection State: {state}");
+            // 추가적인 상태 처리 로직 (예: 연결 실패 시 재시도 등)
         }
 
         private void HandleConnectionStateChange(RTCPeerConnectionState state)
@@ -541,55 +693,91 @@ namespace UnityVerseBridge.Core
             switch (state)
             {
                 case RTCPeerConnectionState.Connected:
+                    Debug.Log("[WebRtcManager] PeerConnectionState is Connected. Invoking OnWebRtcConnected event.");
                     OnWebRtcConnected?.Invoke();
                     break;
-                case RTCPeerConnectionState.Failed:
                 case RTCPeerConnectionState.Disconnected:
+                case RTCPeerConnectionState.Failed:
                 case RTCPeerConnectionState.Closed:
+                    Debug.Log("[WebRtcManager] PeerConnectionState is Disconnected, Failed, or Closed. Invoking OnWebRtcDisconnected event.");
                     OnWebRtcDisconnected?.Invoke();
+                    // 필요하다면 여기서 PeerConnection 정리 또는 재연결 시도
                     break;
             }
         }
 
         private void HandleDataChannelReceived(RTCDataChannel channel)
         {
-            Debug.Log($"[WebRtcManager] DC Received: {channel.Label}");
-            if (dataChannel == null)
+            if (dataChannel != null && dataChannel.Label == channel.Label)
             {
-                dataChannel = channel;
-                _dataChannelState = RTCDataChannelState.Connecting;
-                SetupDataChannelEvents(dataChannel);
+                Debug.LogWarning($"[WebRtcManager] Data channel '{channel.Label}' already exists. Ignoring new one.");
+                return;
             }
-            else if (dataChannel != channel)
-            {
-                Debug.LogWarning($"Another DC '{channel.Label}' received.");
-                dataChannel.Close();
-                dataChannel = channel;
-                SetupDataChannelEvents(dataChannel);
-            }
+            Debug.Log($"[WebRtcManager] Data Channel '{channel.Label}' Received!");
+            dataChannel = channel;
+            _dataChannelState = channel.ReadyState;
+            SetupDataChannelEvents(dataChannel);
         }
 
         private void HandleTrackReceived(RTCTrackEvent e)
         {
-            // --- IEnumerable 인덱싱 오류 수정 ---
-            Debug.Log($"[WebRtcManager] Track Received: Kind={e.Track.Kind}, ID={e.Track.Id}");
-            var firstStream = e.Streams.FirstOrDefault(); // Linq 사용! (using System.Linq; 필요)
-            if (firstStream != null)
-            {
-                // GetTracks()를 사용하여 스트림 내 트랙 ID 목록 얻기 (e.Track.Id와 다를 수 있음)
-                Debug.Log($" Associated Stream IDs: {firstStream.Id}, Track IDs in Stream: {string.Join(",", firstStream.GetTracks().Select(t => t.Id))}");
-            }
-            else
-            {
-                Debug.Log("[WebRtcManager] No associated streams found for this track.");
-            }
-            // --- 수정 완료 ---
+            Debug.Log($"[WebRtcManager] Track Received: {e.Track.Kind}, ID: {e.Track.Id}");
             OnTrackReceived?.Invoke(e.Track);
+
+            if (e.Track.Kind == TrackKind.Video)
+            {
+                var videoTrack = e.Track as VideoStreamTrack;
+                if (videoTrack != null)
+                {
+                    OnVideoTrackReceived?.Invoke(videoTrack);
+                }
+            }
+            // 필요에 따라 오디오 트랙 처리 추가
         }
 
         private void HandleNegotiationNeeded()
         {
-            Debug.LogWarning("[WebRtcManager] Negotiation Needed triggered. Implement re-negotiation if needed.");
+            Debug.LogWarning("[WebRtcManager] HandleNegotiationNeeded: Negotiation needed event triggered!");
+
+            if (peerConnection == null)
+            {
+                Debug.LogError("[WebRtcManager] Cannot start renegotiation: PeerConnection is null.");
+                return;
+            }
+            if (!IsSignalingConnected)
+            {
+                Debug.LogError("[WebRtcManager] Cannot start renegotiation: Signaling is not connected.");
+                return;
+            }
+            if (peerConnection.SignalingState != RTCSignalingState.Stable)
+            {
+                Debug.LogError($"[WebRtcManager] Cannot start renegotiation: Signaling state is not Stable (Current: {peerConnection.SignalingState}). Waiting for Stable state.");
+                // 상태가 Stable이 아니면 재협상을 시도하지 않고 대기 (나중에 다시 호출될 수 있음)
+                return;
+            }
+            if (_isNegotiationCoroutineRunning) 
+            {
+                Debug.LogWarning("[WebRtcManager] Cannot start renegotiation now: Another negotiation coroutine is already running.");
+                return;
+            }
+
+            if (isOfferer) // Offerer만 Offer를 생성하여 재협상을 시작
+            {
+                Debug.Log("[WebRtcManager] Starting renegotiation (creating and sending new offer)...");
+                StartNegotiationCoroutine(CreateOfferAndSend());
+            }
+            else
+            {
+                Debug.LogWarning("[WebRtcManager] Answerer received OnNegotiationNeeded. Typically, the offerer initiates renegotiation.");
+                // Answerer 측에서 OnNegotiationNeeded가 발생하면, 일반적으로는 아무것도 하지 않거나
+                // 상대방에게 재협상이 필요함을 알리는 out-of-band 시그널을 보낼 수 있음 (여기서는 무시).
+            }
+        }
+
+        public void SetRole(bool isOffererRole)
+        {
+            this.isOfferer = isOffererRole;
+            Debug.Log($"[WebRtcManager] Role set to: {(isOfferer ? "Offerer" : "Answerer")}");
         }
     }
 }
