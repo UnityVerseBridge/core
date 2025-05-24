@@ -2,7 +2,8 @@
     "name": "UnityVerseBridge.Core.Runtime",
     "rootNamespace": "UnityVerseBridge.Core",
     "references": [
-        "Unity.WebRTC"
+        "Unity.WebRTC",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

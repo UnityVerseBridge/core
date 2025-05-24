@@ -58,7 +58,6 @@ namespace UnityVerseBridge.Core
         // --- Initialization ---
         void Awake()
         {
-            Debug.Log("[WebRtcManager] Awake.");
             // SignalingClient 인스턴스화는 SetupSignaling에서 처리
         }
 
@@ -75,7 +74,6 @@ namespace UnityVerseBridge.Core
             }
 
             this.signalingClient = client ?? throw new ArgumentNullException(nameof(client));
-            Debug.Log($"[WebRtcManager] SignalingClient injected via SetupSignaling: {client.GetType().Name}");
             SubscribeSignalingEvents();
 
             // Setup 후 자동으로 시그널링 연결 상태를 확인하거나 연결 시도
@@ -85,7 +83,6 @@ namespace UnityVerseBridge.Core
         public void SetConfiguration(WebRtcConfiguration config)
         {
              this.configuration = config ?? new WebRtcConfiguration();
-             Debug.Log("[WebRtcManager] WebRTC Configuration updated.");
         }
 
         /// <summary>
@@ -105,7 +102,6 @@ namespace UnityVerseBridge.Core
             signalingClient.OnConnected += HandleSignalingConnected;
             signalingClient.OnDisconnected += HandleSignalingDisconnected;
             signalingClient.OnSignalingMessageReceived += HandleSignalingMessage;
-            Debug.Log("[WebRtcManager] Subscribed to SignalingClient events.");
         }
 
         private void UnsubscribeSignalingEvents()
@@ -177,7 +173,6 @@ namespace UnityVerseBridge.Core
                 return;
             }
 
-            Debug.Log("[WebRtcManager] Starting Peer Connection process as offerer...");
             CreatePeerConnection();
             CreateDataChannel();
             StartNegotiationCoroutine(CreateOfferAndSend());
@@ -294,9 +289,6 @@ namespace UnityVerseBridge.Core
             }
             
             this.signalingServerUrl = newServerUrl; // 내부 URL 업데이트
-            Debug.Log($"[WebRtcManager] Set new server URL to: {this.signalingServerUrl}");
-
-            Debug.Log($"[WebRtcManager] StartSignalingAndPeerConnection: Attempting to connect to {newServerUrl}");
             try
             {
                 // ISignalingClient의 Connect를 호출.
@@ -330,7 +322,6 @@ namespace UnityVerseBridge.Core
                 Debug.LogWarning("PeerConnection exists. Closing previous.");
                 peerConnection.Close();
             }
-            Debug.Log("[WebRtcManager] Creating Peer Connection...");
             var rtcConfig = configuration.ToRTCConfiguration(); // 확장 메서드 사용
             peerConnection = new RTCPeerConnection(ref rtcConfig);
             _peerConnectionState = RTCPeerConnectionState.New;
@@ -341,7 +332,6 @@ namespace UnityVerseBridge.Core
             peerConnection.OnDataChannel = HandleDataChannelReceived;
             peerConnection.OnTrack = HandleTrackReceived;
             peerConnection.OnNegotiationNeeded = HandleNegotiationNeeded;
-            Debug.Log("[WebRtcManager] Peer Connection event handlers registered.");
         }
 
         private void CreateDataChannel()
@@ -358,7 +348,6 @@ namespace UnityVerseBridge.Core
             }
             try
             {
-                Debug.Log($"[WebRtcManager] Creating Data Channel: {configuration.dataChannelLabel}");
                 RTCDataChannelInit options = new RTCDataChannelInit() { ordered = true };
                 dataChannel = peerConnection.CreateDataChannel(configuration.dataChannelLabel, options);
                 _dataChannelState = RTCDataChannelState.Connecting;
@@ -399,31 +388,17 @@ namespace UnityVerseBridge.Core
             {
                 Debug.LogError($"[WebRtcManager] Data Channel Error: {error}");
             };
-            Debug.Log($"[WebRtcManager] Data Channel '{channel.Label}' event handlers set up.");
         }
 
         // --- Signaling Event Handlers ---
         private void HandleSignalingConnected()
         {
             _isSignalingConnected = true;
-            Debug.Log("[WebRtcManager] Signaling Connected!");
             OnSignalingConnected?.Invoke();
 
             if (isOfferer && autoStartPeerConnection)
             {
-                Debug.Log("[WebRtcManager] Acting as Offerer with autoStartPeerConnection=true. Automatically starting Peer Connection...");
                 StartPeerConnection(); // Offerer이고 autoStart가 true일 경우에만 자동으로 PeerConnection 시작
-            }
-            else if (isOfferer && !autoStartPeerConnection)
-            {
-                Debug.Log("[WebRtcManager] Acting as Offerer with autoStartPeerConnection=false. Waiting for manual StartPeerConnection() call...");
-            }
-            else
-            {
-                Debug.Log("[WebRtcManager] Acting as Answerer. Waiting for Offer...");
-                // Answerer는 Offer를 기다리므로 여기서 자동으로 StartPeerConnection을 호출하지 않음
-                // 필요하다면 PeerConnection 객체만 미리 생성해둘 수 있음 (CreatePeerConnection() 호출)
-                // CreatePeerConnection(); // Offer 수신 시 어차피 생성되므로, 여기서 미리 할 필요는 없을 수도 있음
             }
         }
 
@@ -443,7 +418,6 @@ namespace UnityVerseBridge.Core
             }
             if (peerConnection == null && type == "offer" && !isOfferer) // Answerer가 Offer를 받을 때 PC가 없다면 생성
             {
-                Debug.Log("[WebRtcManager] Answerer received Offer, creating PeerConnection.");
                 CreatePeerConnection(); 
                 // DataChannel도 여기서 생성할 수 있으나, Offer에 이미 DataChannel 정보가 포함되어 올 것이므로
                 // OnDataChannel 콜백에서 처리하는 것이 일반적. 여기서는 일단 PC만 생성.
@@ -457,7 +431,6 @@ namespace UnityVerseBridge.Core
                 _negotiationCoroutine = null;
             }
 
-            Debug.Log($"[WebRtcManager] Handling Signaling Message | Type: {type}, Role: {(isOfferer ? "Offerer" : "Answerer")}");
             try
             {
                 switch (type)
@@ -526,7 +499,6 @@ namespace UnityVerseBridge.Core
                 Debug.LogError("PC null in CreateOffer");
                 yield break;
             }
-            Debug.Log("[WebRtcManager] Creating Offer...");
             var offerOp = peerConnection.CreateOffer();
             yield return offerOp;
             if (offerOp.IsError)
@@ -535,7 +507,6 @@ namespace UnityVerseBridge.Core
                 yield break;
             }
             var offerDesc = offerOp.Desc;
-            Debug.Log("[WebRtcManager] Setting Local Desc (Offer)...");
             var localDescOp = peerConnection.SetLocalDescription(ref offerDesc);
             yield return localDescOp;
             if (localDescOp.IsError)
@@ -543,7 +514,6 @@ namespace UnityVerseBridge.Core
                 Debug.LogError($"Failed LocalDesc(Offer): {localDescOp.Error.message}");
                 yield break;
             }
-            Debug.Log("[WebRtcManager] Sending Offer...");
             try
             {
                 var offerMsg = new SessionDescriptionMessage("offer", offerDesc.sdp);
@@ -562,7 +532,6 @@ namespace UnityVerseBridge.Core
                 Debug.LogError("PC null in HandleOffer");
                 yield break;
             }
-            Debug.Log("[WebRtcManager] Setting Remote Desc (Offer)...");
             RTCSessionDescription offerDesc = new RTCSessionDescription { type = RTCSdpType.Offer, sdp = offerMessage.sdp };
             var remoteDescOp = peerConnection.SetRemoteDescription(ref offerDesc);
             yield return remoteDescOp;
@@ -571,7 +540,6 @@ namespace UnityVerseBridge.Core
                 Debug.LogError($"Failed RemoteDesc(Offer): {remoteDescOp.Error.message}");
                 yield break;
             }
-            Debug.Log("[WebRtcManager] Creating Answer...");
             var answerOp = peerConnection.CreateAnswer();
             yield return answerOp;
             if (answerOp.IsError)
@@ -580,7 +548,6 @@ namespace UnityVerseBridge.Core
                 yield break;
             }
             var answerDesc = answerOp.Desc;
-            Debug.Log("[WebRtcManager] Setting Local Desc (Answer)...");
             var localDescOp = peerConnection.SetLocalDescription(ref answerDesc);
             yield return localDescOp;
             if (localDescOp.IsError)
@@ -588,7 +555,6 @@ namespace UnityVerseBridge.Core
                 Debug.LogError($"Failed LocalDesc(Answer): {localDescOp.Error.message}");
                 yield break;
             }
-            Debug.Log("[WebRtcManager] Sending Answer...");
             try
             {
                 var answerMsg = new SessionDescriptionMessage("answer", answerDesc.sdp);
@@ -607,7 +573,6 @@ namespace UnityVerseBridge.Core
                 Debug.LogError("PC null in HandleAnswer");
                 yield break;
             }
-            Debug.Log("[WebRtcManager] Setting Remote Desc (Answer)...");
             RTCSessionDescription answerDesc = new RTCSessionDescription { type = RTCSdpType.Answer, sdp = answerMessage.sdp };
             var remoteDescOp = peerConnection.SetRemoteDescription(ref answerDesc);
             yield return remoteDescOp;
@@ -616,10 +581,7 @@ namespace UnityVerseBridge.Core
             {
                 Debug.LogError($"Failed RemoteDesc(Answer): {remoteDescOp.Error.message}");
             }
-            else
-            {
-                Debug.Log("[WebRtcManager] Remote Description (Answer) Set Successfully.");
-            }
+
             // --- 수정 완료 ---
         }
 
@@ -647,7 +609,6 @@ namespace UnityVerseBridge.Core
                 sdpMLineIndex = candidateMessage.sdpMLineIndex
             };
             
-            Debug.Log($"[WebRtcManager] Attempting to add ICE candidate: {candidateMessage.candidate.Substring(0, Math.Min(30, candidateMessage.candidate.Length))}...");
             try
             {
                 // RTCIceCandidate 객체로 변환하여 전달
@@ -674,7 +635,6 @@ namespace UnityVerseBridge.Core
                     candidate.SdpMid,
                     candidate.SdpMLineIndex ?? 0
                 );
-                Debug.Log($"[WebRtcManager] Sending ICE Candidate: {candidate.Candidate.Substring(0, Math.Min(30, candidate.Candidate.Length))}...");
                 _ = signalingClient.SendMessage(iceMsg);
             }
         }
@@ -682,24 +642,20 @@ namespace UnityVerseBridge.Core
         private void HandleIceConnectionChange(RTCIceConnectionState state)
         {
             _peerConnectionState = peerConnection.ConnectionState; // 상태 업데이트
-            Debug.Log($"[WebRtcManager] ICE Connection State: {state}");
             // 추가적인 상태 처리 로직 (예: 연결 실패 시 재시도 등)
         }
 
         private void HandleConnectionStateChange(RTCPeerConnectionState state)
         {
             _peerConnectionState = state;
-            Debug.Log($"[WebRtcManager] Peer Connection State: {state}");
             switch (state)
             {
                 case RTCPeerConnectionState.Connected:
-                    Debug.Log("[WebRtcManager] PeerConnectionState is Connected. Invoking OnWebRtcConnected event.");
                     OnWebRtcConnected?.Invoke();
                     break;
                 case RTCPeerConnectionState.Disconnected:
                 case RTCPeerConnectionState.Failed:
                 case RTCPeerConnectionState.Closed:
-                    Debug.Log("[WebRtcManager] PeerConnectionState is Disconnected, Failed, or Closed. Invoking OnWebRtcDisconnected event.");
                     OnWebRtcDisconnected?.Invoke();
                     // 필요하다면 여기서 PeerConnection 정리 또는 재연결 시도
                     break;
@@ -713,7 +669,6 @@ namespace UnityVerseBridge.Core
                 Debug.LogWarning($"[WebRtcManager] Data channel '{channel.Label}' already exists. Ignoring new one.");
                 return;
             }
-            Debug.Log($"[WebRtcManager] Data Channel '{channel.Label}' Received!");
             dataChannel = channel;
             _dataChannelState = channel.ReadyState;
             SetupDataChannelEvents(dataChannel);
@@ -777,7 +732,6 @@ namespace UnityVerseBridge.Core
         public void SetRole(bool isOffererRole)
         {
             this.isOfferer = isOffererRole;
-            Debug.Log($"[WebRtcManager] Role set to: {(isOfferer ? "Offerer" : "Answerer")}");
         }
     }
 }
