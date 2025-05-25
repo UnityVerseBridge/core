@@ -6,13 +6,19 @@ using UnityVerseBridge.Core.Signaling.Data;
 namespace UnityVerseBridge.Core.Signaling
 {
     /// <summary>
-    /// IWebSocketClient 인터페이스를 사용하여 실제 WebSocket 통신을 수행하고,
-    /// WebRTC 시그널링 메시지 처리를 담당하는 클래스.
-    /// ISignalingClient 인터페이스를 구현한다.
+    /// WebRTC 시그널링 클라이언트 구현체입니다.
+    /// 
+    /// 주요 역할:
+    /// 1. 시그널링 서버와 WebSocket 연결 관리
+    /// 2. SDP Offer/Answer 교환
+    /// 3. ICE Candidate 교환
+    /// 4. 룸 기반 피어 매칭
+    /// 
+    /// 설계 패턴: Adapter Pattern을 사용하여 플랫폼별 WebSocket 구현을 추상화
     /// </summary>
     public class SignalingClient : ISignalingClient
     {
-        private IWebSocketClient webSocketAdapter; // 구체적인 구현 대신 인터페이스에 의존!
+        private IWebSocketClient webSocketAdapter; // DI: 플랫폼별 구현체 주입
         private string currentServerUrl;
 
         // ISignalingClient 인터페이스 이벤트 구현
@@ -24,8 +30,14 @@ namespace UnityVerseBridge.Core.Signaling
         public bool IsConnected => webSocketAdapter != null && webSocketAdapter.State == WebSocketState.Open;
 
         /// <summary>
-        /// 외부에서 WebSocket 어댑터와 서버 URL을 받아 초기화하고 연결을 시도한다.
+        /// WebSocket 어댑터를 주입받아 시그널링 서버에 연결합니다.
+        /// 
+        /// 사용 예시:
+        /// - Quest: SystemWebSocketAdapter 사용
+        /// - Mobile: NativeWebSocketAdapter 사용
         /// </summary>
+        /// <param name="adapter">플랫폼별 WebSocket 구현체</param>
+        /// <param name="url">시그널링 서버 URL (ws:// 또는 wss://)</param>
         public async Task InitializeAndConnect(IWebSocketClient adapter, string url)
         {
             if (webSocketAdapter != null && webSocketAdapter.State != WebSocketState.Closed)
@@ -132,7 +144,8 @@ namespace UnityVerseBridge.Core.Signaling
                     return;
                 }
                 
-                // JSON 유효성 검사
+                // JSON 형식 기본 검증
+                // WebSocket 메시지는 다양한 형식일 수 있으므로 기본 검증만 수행
                 messageJson = messageJson.Trim();
                 if (!messageJson.StartsWith("{") || !messageJson.EndsWith("}"))
                 {

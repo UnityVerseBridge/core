@@ -409,18 +409,25 @@ namespace UnityVerseBridge.Core
             OnSignalingDisconnected?.Invoke();
         }
 
+        /// <summary>
+        /// 시그널링 서버로부터 받은 메시지를 처리합니다.
+        /// Offer/Answer/ICE candidate 등 WebRTC 연결에 필요한 정보를 교환합니다.
+        /// </summary>
         private void HandleSignalingMessage(string type, string jsonData)
         {
-            if (peerConnection == null && type != "offer" && isOfferer) // Answerer는 Offer를 받기 전 PC가 없을 수 있음
+            // Offerer는 자신이 먼저 PeerConnection을 생성하므로, offer를 받을 일이 없음
+            if (peerConnection == null && type != "offer" && isOfferer)
             {
                 Debug.LogWarning($"[WebRtcManager] Received '{type}' before PeerConnection init (Offerer). Ignoring.");
                 return;
             }
-            if (peerConnection == null && type == "offer" && !isOfferer) // Answerer가 Offer를 받을 때 PC가 없다면 생성
+            
+            // Answerer는 상대방의 Offer를 받고 나서 PeerConnection을 생성
+            if (peerConnection == null && type == "offer" && !isOfferer)
             {
                 CreatePeerConnection(); 
-                // DataChannel도 여기서 생성할 수 있으나, Offer에 이미 DataChannel 정보가 포함되어 올 것이므로
-                // OnDataChannel 콜백에서 처리하는 것이 일반적. 여기서는 일단 PC만 생성.
+                // DataChannel은 Offer의 SDP에 포함되어 있으므로,
+                // Answerer는 OnDataChannel 콜백을 통해 자동으로 받게 됨
             }
 
             if (_isNegotiationCoroutineRunning && (type == "offer" || type == "answer"))
@@ -473,8 +480,14 @@ namespace UnityVerseBridge.Core
         }
         
         // --- Helper to manage negotiation coroutine ---
+        /// <summary>
+        /// SDP 협상 코루틴을 안전하게 시작합니다.
+        /// 동시에 여러 협상이 실행되는 것을 방지합니다.
+        /// </summary>
+        /// <param name="coroutineLogic">실행할 협상 로직 (Offer/Answer 생성 등)</param>
         private void StartNegotiationCoroutine(IEnumerator coroutineLogic)
         {
+            // 중복 협상 방지 - WebRTC는 동시에 하나의 협상만 진행 가능
             if (_isNegotiationCoroutineRunning)
             {
                 Debug.LogWarning("[WebRtcManager] Attempted to start a new negotiation while one is already running. Aborting new one.");
@@ -492,6 +505,10 @@ namespace UnityVerseBridge.Core
         }
 
         // --- WebRTC Logic Coroutines ---
+        /// <summary>
+        /// WebRTC Offer를 생성하고 시그널링 서버를 통해 전송합니다.
+        /// Offerer(발신자)가 연결을 시작할 때 호출됩니다.
+        /// </summary>
         private IEnumerator CreateOfferAndSend()
         {
             if (peerConnection == null)
