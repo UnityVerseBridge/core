@@ -36,18 +36,19 @@ UnityVerseBridge.Core
 2. `+` 버튼 클릭 > "Add package from git URL..."
 3. 다음 URL 입력:
    ```
-   https://github.com/yourusername/UnityVerseBridge-Core.git
+   https://github.com/UnityVerseBridge/core.git
    ```
 
-### 수동 설치
+### 로컬 패키지로 설치
 
-1. 이 리포지토리를 클론 또는 다운로드
-2. Unity 프로젝트의 `Packages` 폴더에 복사
+1. Unity Package Manager 열기
+2. `+` 버튼 > "Add package from disk..."
+3. `core/package.json` 파일 선택
 
 ## 🔧 필수 의존성
 
-- Unity 2021.3 LTS 이상
-- Unity WebRTC Package 3.0.0-exp.7 이상
+- Unity 6 LTS (6000.0.33f1) 이상 또는 Unity 2022.3 LTS 이상
+- Unity WebRTC Package 3.0.0-pre.8 이상
 - TextMeshPro
 
 ## 📁 프로젝트 구조
@@ -188,6 +189,27 @@ public class MobileAppInitializer : MonoBehaviour
 2. 양쪽 피어의 DataChannel 라벨 일치 확인
 3. 시그널링 서버 연결 상태 확인
 
+## 🔐 보안 고려사항
+
+- 시그널링 서버는 현재 간단한 토큰 인증만 지원 (JWT 미지원)
+- 프로덕션 환경에서는 WSS(WebSocket Secure) 사용 권장
+- 민감한 정보는 환경 변수로 관리
+
+## 🚧 향후 개발 계획
+
+- 오디오 트랙 지원 추가
+- 1:N 연결 지원
+- 연결 품질 모니터링 API
+- 자동 재연결 기능 강화
+
 ## 📄 라이선스
 
-MIT License
+이 프로젝트는 BSD 3-Clause 라이선스를 따릅니다. 자세한 내용은 [LICENSE](LICENSE) 파일을 참고하세요.
+
+## 👥 제작자
+
+- **kugorang** - [GitHub](https://github.com/kugorang)
+
+---
+
+문제가 있거나 제안사항이 있으시면 [Issues](https://github.com/UnityVerseBridge/core/issues)에 등록해주세요.
