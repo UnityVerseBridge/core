@@ -5,9 +5,10 @@ Unity 환경에서 WebRTC를 통해 VR 기기(Quest)와 모바일 기기 간 실
 ## 🎯 개요
 
 이 패키지는 다음 기능을 제공합니다:
-- WebRTC P2P 연결 관리
+- WebRTC P2P 연결 관리 (1:1 및 1:N 지원)
 - 시그널링 서버 통신
 - 비디오/오디오 스트리밍
+- 양방향 오디오 통신 지원
 - 실시간 데이터 채널 통신 (터치, 햅틱 등)
 - 플랫폼별 WebSocket 어댑터
 
@@ -15,14 +16,16 @@ Unity 환경에서 WebRTC를 통해 VR 기기(Quest)와 모바일 기기 간 실
 
 ```
 UnityVerseBridge.Core
-├── WebRTC 관리 (WebRtcManager)
-│   ├── PeerConnection 생성/관리
-│   ├── 미디어 트랙 관리
+├── WebRTC 관리
+│   ├── WebRtcManager (1:1 연결)
+│   ├── MultiPeerWebRtcManager (1:N 연결)
+│   ├── AudioStreamManager (양방향 오디오)
 │   └── DataChannel 통신
 ├── 시그널링 (SignalingClient)
 │   ├── WebSocket 연결
 │   ├── SDP/ICE 교환
-│   └── 룸 기반 매칭
+│   ├── 룸 기반 매칭
+│   └── 타겟팅된 메시지 지원
 └── 플랫폼 어댑터
     ├── SystemWebSocketAdapter (Quest/Editor)
     └── NativeWebSocketAdapter (Mobile)
@@ -55,14 +58,18 @@ UnityVerseBridge.Core
 
 ```
 Runtime/
-├── WebRtcManager.cs          # WebRTC 연결 핵심 관리
+├── WebRtcManager.cs          # WebRTC 1:1 연결 관리
+├── MultiPeerWebRtcManager.cs # WebRTC 1:N 연결 관리
+├── AudioStreamManager.cs     # 양방향 오디오 스트리밍
 ├── WebRtcConfiguration.cs    # 설정 데이터 구조
 ├── ConnectionConfig.cs       # 연결 설정 ScriptableObject
 ├── Signaling/
 │   ├── SignalingClient.cs    # 시그널링 로직
 │   ├── IWebSocketClient.cs   # WebSocket 인터페이스
 │   ├── Adapters/             # 플랫폼별 WebSocket 구현
-│   └── Messages/             # 메시지 타입 정의
+│   ├── Messages/             # 메시지 타입 정의
+│   └── Data/
+│       └── RoomMessages.cs   # 룸 기반 메시지 타입
 ├── DataChannel/
 │   └── Data/                 # 데이터 구조체
 └── Utils/
@@ -91,7 +98,11 @@ webRtcManager.SetupSignaling(signalingClient);
 VideoStreamTrack videoTrack = new VideoStreamTrack(renderTexture);
 webRtcManager.AddVideoTrack(videoTrack);
 
-// 3. 데이터 전송
+// 3. 오디오 트랙 추가 (AudioStreamManager 사용)
+AudioStreamTrack audioTrack = new AudioStreamTrack(audioSource);
+webRtcManager.AddAudioTrack(audioTrack);
+
+// 4. 데이터 전송
 var touchData = new TouchData { 
     touchId = 0, 
     positionX = 0.5f, 
@@ -108,6 +119,46 @@ WebSocket을 통해 시그널링 서버와 통신하며 WebRTC 연결 설정을 
 - SDP(Session Description Protocol) 교환
 - ICE candidate 교환
 - 연결 상태 관리
+- 타겟팅된 메시지 전송 (1:N 연결 지원)
+
+### MultiPeerWebRtcManager
+하나의 호스트가 여러 클라이언트와 동시에 연결할 수 있는 1:N 연결을 지원합니다.
+
+**주요 기능:**
+- 호스트/클라이언트 역할 관리
+- 다중 PeerConnection 관리
+- 모든 피어에게 브로드캐스트
+- 특정 피어에게 타겟팅된 메시지 전송
+- 최대 연결 수 제한
+
+**사용 예시:**
+```csharp
+// 호스트 설정 (Quest)
+multiPeerManager.SetRole(MultiPeerWebRtcManager.PeerRole.Host);
+multiPeerManager.maxConnections = 5;
+multiPeerManager.OnPeerConnected += OnPeerConnected;
+
+// 모든 피어에게 비디오 브로드캐스트
+multiPeerManager.AddVideoTrackToAll(videoTrack);
+```
+
+### AudioStreamManager
+양방향 오디오 스트리밍을 관리하는 고수준 컴포넌트입니다.
+
+**주요 기능:**
+- 마이크 권한 처리
+- 오디오 송수신 관리
+- 플랫폼별 오디오 최적화
+- 볼륨 컨트롤
+- 오디오 레벨 모니터링
+
+**사용 예시:**
+```csharp
+// AudioStreamManager 설정
+audioManager.SetMicrophoneEnabled(true);
+audioManager.SetSpeakerEnabled(true);
+audioManager.OnMicrophoneLevelChanged += UpdateMicUI;
+```
 
 ### 플랫폼별 WebSocket 어댑터
 각 플랫폼의 특성에 맞는 WebSocket 구현체를 제공합니다.
@@ -195,12 +246,19 @@ public class MobileAppInitializer : MonoBehaviour
 - 프로덕션 환경에서는 WSS(WebSocket Secure) 사용 권장
 - 민감한 정보는 환경 변수로 관리
 
+## ✅ 최근 추가된 기능
+
+- ✅ 양방향 오디오 스트리밍 지원 (AudioStreamManager)
+- ✅ 1:N 연결 지원 (MultiPeerWebRtcManager)
+- ✅ 타겟팅된 시그널링 메시지 지원
+- ✅ 룸 기반 연결 관리 강화
+
 ## 🚧 향후 개발 계획
 
-- 오디오 트랙 지원 추가
-- 1:N 연결 지원
 - 연결 품질 모니터링 API
 - 자동 재연결 기능 강화
+- 동적 비트레이트 조정
+- 녹화 기능 지원
 
 ## 📄 라이선스
 
