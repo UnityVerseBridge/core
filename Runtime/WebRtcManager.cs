@@ -48,6 +48,10 @@ namespace UnityVerseBridge.Core
         /// 원격 피어로부터 비디오 트랙을 수신했을 때 발생하는 이벤트입니다.
         /// </summary>
         public event Action<VideoStreamTrack> OnVideoTrackReceived; // 비디오 트랙 전용 이벤트 추가
+        /// <summary>
+        /// 원격 피어로부터 오디오 트랙을 수신했을 때 발생하는 이벤트입니다.
+        /// </summary>
+        public event Action<AudioStreamTrack> OnAudioTrackReceived; // 오디오 트랙 전용 이벤트 추가
 
         // --- Public Properties ---
         public bool IsSignalingConnected => _isSignalingConnected;
@@ -249,6 +253,33 @@ namespace UnityVerseBridge.Core
                 // 여기서 명시적으로 재협상을 시작하거나, 약간의 지연 후 시작하는 것을 고려할 수 있음.
                 // 예: StartCoroutine(DelayedHandleNegotiationNeeded());
                 // 또는, HandleNegotiationNeeded 내부에서 코루틴 상태를 더 철저히 검사.
+            }
+        }
+
+        public void AddAudioTrack(AudioStreamTrack audioTrack)
+        {
+            if (peerConnection == null)
+            {
+                Debug.LogError("[WebRtcManager] PeerConnection is not initialized. Cannot add track.");
+                return;
+            }
+            if (audioTrack == null)
+            {
+                Debug.LogError("[WebRtcManager] Cannot add null audio track.");
+                return;
+            }
+
+            Debug.Log($"[WebRtcManager] Adding audio track: {audioTrack.Id}");
+            RTCRtpSender sender = peerConnection.AddTrack(audioTrack);
+
+            if (sender == null)
+            {
+                Debug.LogError("[WebRtcManager] Failed to add audio track to PeerConnection.");
+            }
+            else
+            {
+                trackSenders[audioTrack] = sender; // 트랙과 sender 매핑 저장
+                Debug.Log("[WebRtcManager] Audio track added successfully to peer connection. Renegotiation might be needed.");
             }
         }
 
@@ -704,7 +735,14 @@ namespace UnityVerseBridge.Core
                     OnVideoTrackReceived?.Invoke(videoTrack);
                 }
             }
-            // 필요에 따라 오디오 트랙 처리 추가
+            else if (e.Track.Kind == TrackKind.Audio)
+            {
+                var audioTrack = e.Track as AudioStreamTrack;
+                if (audioTrack != null)
+                {
+                    OnAudioTrackReceived?.Invoke(audioTrack);
+                }
+            }
         }
 
         private void HandleNegotiationNeeded()
