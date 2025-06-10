@@ -177,8 +177,8 @@ namespace UnityVerseBridge.Core
                 return;
             }
 
-            CreatePeerConnection();
-            CreateDataChannel();
+            InternalCreatePeerConnection();
+            InternalCreateDataChannel();
             StartNegotiationCoroutine(CreateOfferAndSend());
         }
 
@@ -345,8 +345,47 @@ namespace UnityVerseBridge.Core
             }
         }
 
+        // --- Public WebRTC Setup Methods ---
+        public void CreatePeerConnection()
+        {
+            if (peerConnection != null && peerConnection.ConnectionState != RTCPeerConnectionState.Closed && peerConnection.ConnectionState != RTCPeerConnectionState.Failed)
+            {
+                Debug.LogWarning($"[WebRtcManager] PeerConnection already exists (State: {peerConnection.ConnectionState}). Not creating new one.");
+                return;
+            }
+            InternalCreatePeerConnection();
+        }
+        
+        public void CreateDataChannel()
+        {
+            InternalCreateDataChannel();
+        }
+        
+        public void StartNegotiation()
+        {
+            if (!isOfferer)
+            {
+                Debug.LogWarning("[WebRtcManager] StartNegotiation called but this peer is Answerer. Ignoring...");
+                return;
+            }
+            
+            if (peerConnection == null)
+            {
+                Debug.LogError("[WebRtcManager] Cannot start negotiation: PeerConnection is null.");
+                return;
+            }
+            
+            if (_isNegotiationCoroutineRunning)
+            {
+                Debug.LogWarning("[WebRtcManager] Negotiation already in progress.");
+                return;
+            }
+            
+            StartNegotiationCoroutine(CreateOfferAndSend());
+        }
+        
         // --- Private WebRTC Setup ---
-        private void CreatePeerConnection()
+        private void InternalCreatePeerConnection()
         {
             if (peerConnection != null)
             {
@@ -365,7 +404,7 @@ namespace UnityVerseBridge.Core
             peerConnection.OnNegotiationNeeded = HandleNegotiationNeeded;
         }
 
-        private void CreateDataChannel()
+        private void InternalCreateDataChannel()
         {
             if (peerConnection == null)
             {
@@ -446,6 +485,14 @@ namespace UnityVerseBridge.Core
         /// </summary>
         private void HandleSignalingMessage(string type, string jsonData)
         {
+            // Server-specific messages should be ignored regardless of PeerConnection state
+            if (type == "joined-room" || type == "peer-joined" || type == "peer-left" || 
+                type == "client-ready" || type == "host-disconnected")
+            {
+                Debug.Log($"[WebRtcManager] Received server message '{type}' - ignoring (handled by app initializer)");
+                return;
+            }
+            
             // Offerer는 자신이 먼저 PeerConnection을 생성하므로, offer를 받을 일이 없음
             if (peerConnection == null && type != "offer" && isOfferer)
             {
@@ -456,7 +503,7 @@ namespace UnityVerseBridge.Core
             // Answerer는 상대방의 Offer를 받고 나서 PeerConnection을 생성
             if (peerConnection == null && type == "offer" && !isOfferer)
             {
-                CreatePeerConnection(); 
+                InternalCreatePeerConnection(); 
                 // DataChannel은 Offer의 SDP에 포함되어 있으므로,
                 // Answerer는 OnDataChannel 콜백을 통해 자동으로 받게 됨
             }
@@ -476,7 +523,7 @@ namespace UnityVerseBridge.Core
                     case "offer":
                         if (!isOfferer) // 자신이 Answerer일 경우에만 Offer 처리
                         {
-                            if (peerConnection == null) CreatePeerConnection(); // 방어 코드
+                            if (peerConnection == null) InternalCreatePeerConnection(); // 방어 코드
                             StartNegotiationCoroutine(HandleOfferAndSendAnswer(JsonUtility.FromJson<SessionDescriptionMessage>(jsonData)));
                         }
                         else
