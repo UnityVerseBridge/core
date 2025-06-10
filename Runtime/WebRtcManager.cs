@@ -57,6 +57,7 @@ namespace UnityVerseBridge.Core
         public bool IsSignalingConnected => _isSignalingConnected;
         public bool IsWebRtcConnected => peerConnection?.ConnectionState == RTCPeerConnectionState.Connected;
         public bool IsDataChannelOpen => dataChannel?.ReadyState == RTCDataChannelState.Open;
+        public bool IsNegotiating => isNegotiating;
         public string SignalingServerUrl => signalingServerUrl;
 
         // --- Initialization ---
