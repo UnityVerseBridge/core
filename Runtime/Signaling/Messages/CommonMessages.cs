@@ -20,10 +20,22 @@ namespace UnityVerseBridge.Core.Signaling.Messages
     {
         public string peerId;
         public string clientType;
+        public string role; // Added to match server format
         
         public PeerJoinedMessage()
         {
             type = "peer-joined";
+        }
+    }
+    
+    [System.Serializable]
+    public class ClientReadyMessage : SignalingMessageBase
+    {
+        public string peerId;
+        
+        public ClientReadyMessage()
+        {
+            type = "client-ready";
         }
     }
     

@@ -181,6 +181,11 @@ namespace UnityVerseBridge.Core
             InternalCreateDataChannel();
             StartNegotiationCoroutine(CreateOfferAndSend());
         }
+        
+        public RTCPeerConnectionState GetPeerConnectionState()
+        {
+            return peerConnection != null ? peerConnection.ConnectionState : RTCPeerConnectionState.Closed;
+        }
 
         public void SendDataChannelMessage(object messageData)
         {
