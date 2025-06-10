@@ -33,6 +33,7 @@ namespace UnityVerseBridge.Core
         private RTCDataChannel dataChannel;
         private Coroutine _negotiationCoroutine; // SDP offer/answer/renegotiation 코루틴 통합
         private bool _isNegotiationCoroutineRunning = false; // 협상 코루틴 실행 여부 플래그
+        private bool isNegotiating = false; // 협상 진행 중 여부
         private MediaStream sendStream; // 보낼 트랙들을 담을 스트림
 
         // --- Public Events ---
