@@ -53,7 +53,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Start()
         {
-            if (bridgeManager.BridgeMode != UnityVerseBridgeManager.BridgeMode.Client)
+            if (bridgeManager.bridgeMode != UnityVerseBridgeManager.BridgeMode.Client)
             {
                 Debug.LogWarning("[MobileInputExtension] This component only works in Client mode. Disabling...");
                 enabled = false;
@@ -169,8 +169,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                     touchId = touch.touchId,
                     positionX = position.x,
                     positionY = position.y,
-                    phase = ConvertTouchPhase(touch.phase),
-                    timestamp = Time.time
+                    phase = ConvertTouchPhase(touch.phase)
                 };
 
                 if (debugMode)
@@ -208,7 +207,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                 case UnityEngine.InputSystem.TouchPhase.Moved:
                     return TouchPhase.Moved;
                 case UnityEngine.InputSystem.TouchPhase.Stationary:
-                    return TouchPhase.Stationary;
+                    return TouchPhase.Moved; // Stationary를 Moved로 매핑
                 case UnityEngine.InputSystem.TouchPhase.Ended:
                     return TouchPhase.Ended;
                 case UnityEngine.InputSystem.TouchPhase.Canceled:

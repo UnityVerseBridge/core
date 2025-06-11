@@ -43,7 +43,9 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         private UnityVerseBridgeManager bridgeManager;
         private WebRtcManager webRtcManager;
+        #pragma warning disable 0414
         private bool isInitialized = false;
+        #pragma warning restore 0414
 
         void Awake()
         {
@@ -58,7 +60,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Start()
         {
-            if (bridgeManager.BridgeMode != UnityVerseBridgeManager.BridgeMode.Client)
+            if (bridgeManager.bridgeMode != UnityVerseBridgeManager.BridgeMode.Client)
             {
                 Debug.LogWarning("[MobileHapticExtension] This component only works in Client mode. Disabling...");
                 enabled = false;
@@ -260,7 +262,9 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                     else
                     {
                         // 구형 Android는 패턴으로 강도 시뮬레이션
+                        #pragma warning disable 0414
                         if (useCustomPatterns)
+                        #pragma warning restore 0414
                         {
                             long[] pattern = CreateVibratePattern(durationMs, intensity);
                             vibrator.Call("vibrate", pattern, -1);

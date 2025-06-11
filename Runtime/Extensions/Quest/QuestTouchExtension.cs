@@ -75,7 +75,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Start()
         {
-            if (bridgeManager.BridgeMode != UnityVerseBridgeManager.BridgeMode.Host)
+            if (bridgeManager.bridgeMode != UnityVerseBridgeManager.BridgeMode.Host)
             {
                 Debug.LogWarning("[QuestTouchExtension] This component only works in Host mode. Disabling...");
                 enabled = false;
@@ -310,7 +310,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             // Handle touch phases
             switch (touchData.phase)
             {
-                case TouchPhase.Began:
+                case UnityVerseBridge.Core.DataChannel.Data.TouchPhase.Began:
                     if (animateOnTouch)
                     {
                         AnimateTouchBegan(touchInfo);
@@ -319,12 +319,12 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                         Debug.Log($"[QuestTouchExtension] Touch began from {peerId} at ({touchData.positionX:F3}, {touchData.positionY:F3})");
                     break;
                     
-                case TouchPhase.Moved:
+                case UnityVerseBridge.Core.DataChannel.Data.TouchPhase.Moved:
                     // Update position is already done above
                     break;
                     
-                case TouchPhase.Ended:
-                case TouchPhase.Canceled:
+                case UnityVerseBridge.Core.DataChannel.Data.TouchPhase.Ended:
+                case UnityVerseBridge.Core.DataChannel.Data.TouchPhase.Canceled:
                     if (animateOnTouch)
                     {
                         AnimateTouchEnded(touchInfo);

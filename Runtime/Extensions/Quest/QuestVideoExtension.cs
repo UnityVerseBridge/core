@@ -64,7 +64,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Start()
         {
-            if (bridgeManager.BridgeMode != UnityVerseBridgeManager.BridgeMode.Host)
+            if (bridgeManager.bridgeMode != UnityVerseBridgeManager.BridgeMode.Host)
             {
                 Debug.LogWarning("[QuestVideoExtension] This component only works in Host mode. Disabling...");
                 enabled = false;

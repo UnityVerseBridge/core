@@ -52,7 +52,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             // Subscribe to events
             webRtcManager.OnSignalingConnected += OnSignalingConnected;
             webRtcManager.OnSignalingDisconnected += OnSignalingDisconnected;
-            webRtcManager.OnSignalingError += OnSignalingError;
+            // OnSignalingError is not available in WebRtcManager
             webRtcManager.OnWebRtcConnected += OnWebRtcConnected;
             webRtcManager.OnWebRtcDisconnected += OnWebRtcDisconnected;
             
@@ -66,7 +66,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             {
                 webRtcManager.OnSignalingConnected -= OnSignalingConnected;
                 webRtcManager.OnSignalingDisconnected -= OnSignalingDisconnected;
-                webRtcManager.OnSignalingError -= OnSignalingError;
+                // OnSignalingError is not available in WebRtcManager
                 webRtcManager.OnWebRtcConnected -= OnWebRtcConnected;
                 webRtcManager.OnWebRtcDisconnected -= OnWebRtcDisconnected;
             }
@@ -82,9 +82,9 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             }
 
             // Setup room ID input
-            if (roomIdInput != null && bridgeManager.connectionConfig != null)
+            if (roomIdInput != null && bridgeManager.ConnectionConfig != null)
             {
-                roomIdInput.text = bridgeManager.connectionConfig.roomId;
+                roomIdInput.text = bridgeManager.ConnectionConfig.roomId;
                 roomIdInput.onEndEdit.RemoveAllListeners();
                 roomIdInput.onEndEdit.AddListener(OnRoomIdChanged);
             }
@@ -109,7 +109,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             else
             {
                 // Connect
-                string roomId = roomIdInput != null ? roomIdInput.text : bridgeManager.connectionConfig.roomId;
+                string roomId = roomIdInput != null ? roomIdInput.text : bridgeManager.ConnectionConfig.roomId;
                 if (string.IsNullOrEmpty(roomId))
                 {
                     UpdateUI(false, "Please enter a room ID");
@@ -120,9 +120,9 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                 UpdateUI(true, "Connecting to signaling server...");
                 
                 // Update config with new room ID
-                if (bridgeManager.connectionConfig != null)
+                if (bridgeManager.ConnectionConfig != null)
                 {
-                    bridgeManager.connectionConfig.roomId = roomId;
+                    bridgeManager.ConnectionConfig.roomId = roomId;
                 }
                 
                 bridgeManager.Connect();
@@ -131,9 +131,9 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         private void OnRoomIdChanged(string newRoomId)
         {
-            if (bridgeManager.connectionConfig != null)
+            if (bridgeManager.ConnectionConfig != null)
             {
-                bridgeManager.connectionConfig.roomId = newRoomId;
+                bridgeManager.ConnectionConfig.roomId = newRoomId;
             }
         }
 
@@ -164,11 +164,8 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             }
         }
 
-        private void OnSignalingError(string error)
-        {
-            isConnecting = false;
-            UpdateUI(false, $"Error: {error}");
-        }
+        // OnSignalingError is not available in WebRtcManager
+        // Error handling is done through OnSignalingDisconnected
 
         private void OnWebRtcConnected()
         {
@@ -244,9 +241,9 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                 roomIdInput.text = roomId;
             }
             
-            if (bridgeManager.connectionConfig != null)
+            if (bridgeManager.ConnectionConfig != null)
             {
-                bridgeManager.connectionConfig.roomId = roomId;
+                bridgeManager.ConnectionConfig.roomId = roomId;
             }
         }
     }
