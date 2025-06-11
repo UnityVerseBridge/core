@@ -13,7 +13,7 @@ namespace UnityVerseBridge.Core
     /// 1:N 연결을 지원하는 WebRTC 매니저입니다.
     /// 하나의 호스트(Quest)가 여러 클라이언트(Mobile)와 연결할 수 있습니다.
     /// </summary>
-    public class MultiPeerWebRtcManager : MonoBehaviour
+    public class MultiPeerWebRtcManager : MonoBehaviour, IWebRtcManager
     {
         [Header("Configuration")]
         [SerializeField] private WebRtcConfiguration configuration = new WebRtcConfiguration();
@@ -38,15 +38,27 @@ namespace UnityVerseBridge.Core
         private MediaStream sharedSendStream; // 호스트가 모든 클라이언트에게 보낼 스트림
         private readonly List<MediaStreamTrack> localTracks = new List<MediaStreamTrack>();
 
-        // 이벤트
+        // 이벤트 (IWebRtcManager implementation)
         public event Action<string> OnPeerConnected;
         public event Action<string> OnPeerDisconnected;
-        public event Action<string, string> OnDataChannelMessageReceived;
+        public event Action<string, string> OnDataChannelMessageReceived { add => OnMultiPeerDataChannelMessageReceived += value; remove => OnMultiPeerDataChannelMessageReceived -= value; }
         public event Action<string, MediaStreamTrack> OnTrackReceived;
-        public event Action<string, VideoStreamTrack> OnVideoTrackReceived;
-        public event Action<string, AudioStreamTrack> OnAudioTrackReceived;
+        public event Action<string, VideoStreamTrack> OnVideoTrackReceived { add => OnMultiPeerVideoTrackReceived += value; remove => OnMultiPeerVideoTrackReceived -= value; }
+        public event Action<string, AudioStreamTrack> OnAudioTrackReceived { add => OnMultiPeerAudioTrackReceived += value; remove => OnMultiPeerAudioTrackReceived -= value; }
         public event Action OnSignalingConnected;
         public event Action OnSignalingDisconnected;
+        
+        // MultiPeer specific events
+        public event Action<string, string> OnMultiPeerDataChannelMessageReceived;
+        public event Action<string, MediaStreamTrack> OnMultiPeerVideoTrackReceived;
+        public event Action<string, MediaStreamTrack> OnMultiPeerAudioTrackReceived;
+        
+        // 1:1 compatibility events (redirect to first peer)
+        public event Action OnWebRtcConnected;
+        public event Action OnWebRtcDisconnected;
+        public event Action<string> OnDataChannelMessageReceived;
+        public event UnityEngine.Events.UnityAction<MediaStreamTrack> OnVideoTrackReceived;
+        public event UnityEngine.Events.UnityAction<MediaStreamTrack> OnAudioTrackReceived;
 
         public enum PeerRole
         {
@@ -376,7 +388,15 @@ namespace UnityVerseBridge.Core
             handler.OnConnectionStateChanged += () => HandleConnectionStateChange(peerId, handler.ConnectionState);
             handler.OnVideoTrackReceived += (track) => HandleVideoTrackReceived(peerId, track);
             handler.OnAudioTrackReceived += (track) => HandleAudioTrackReceived(peerId, track);
-            handler.OnDataChannelMessage += (message) => OnDataChannelMessageReceived?.Invoke(peerId, message);
+            handler.OnDataChannelMessage += (message) => 
+            {
+                OnMultiPeerDataChannelMessageReceived?.Invoke(peerId, message);
+                // For 1:1 compatibility, also trigger the simple event with the first peer
+                if (_connectedPeerIds.Count == 1)
+                {
+                    OnDataChannelMessageReceived?.Invoke(message);
+                }
+            };
             handler.OnDataChannelOpen += (channel) => Debug.Log($"[MultiPeerWebRtcManager] DataChannel opened with {peerId}");
             handler.OnDataChannelClose += (channel) => Debug.Log($"[MultiPeerWebRtcManager] DataChannel closed with {peerId}");
             handler.OnNegotiationNeeded += () => HandleNegotiationNeeded(peerId);
@@ -553,12 +573,22 @@ namespace UnityVerseBridge.Core
             {
                 case RTCPeerConnectionState.Connected:
                     OnPeerConnected?.Invoke(peerId);
+                    // For 1:1 compatibility
+                    if (_activeConnectionsCount == 1)
+                    {
+                        OnWebRtcConnected?.Invoke();
+                    }
                     break;
 
                 case RTCPeerConnectionState.Disconnected:
                 case RTCPeerConnectionState.Failed:
                 case RTCPeerConnectionState.Closed:
                     OnPeerDisconnected?.Invoke(peerId);
+                    // For 1:1 compatibility
+                    if (_activeConnectionsCount == 0)
+                    {
+                        OnWebRtcDisconnected?.Invoke();
+                    }
                     break;
             }
         }
@@ -568,14 +598,26 @@ namespace UnityVerseBridge.Core
         {
             Debug.Log($"[MultiPeerWebRtcManager] Video track received from {peerId}");
             OnTrackReceived?.Invoke(peerId, track);
-            OnVideoTrackReceived?.Invoke(peerId, track as VideoStreamTrack);
+            OnMultiPeerVideoTrackReceived?.Invoke(peerId, track);
+            
+            // For 1:1 compatibility
+            if (_connectedPeerIds.Count == 1)
+            {
+                OnVideoTrackReceived?.Invoke(track);
+            }
         }
 
         private void HandleAudioTrackReceived(string peerId, MediaStreamTrack track)
         {
             Debug.Log($"[MultiPeerWebRtcManager] Audio track received from {peerId}");
             OnTrackReceived?.Invoke(peerId, track);
-            OnAudioTrackReceived?.Invoke(peerId, track as AudioStreamTrack);
+            OnMultiPeerAudioTrackReceived?.Invoke(peerId, track);
+            
+            // For 1:1 compatibility
+            if (_connectedPeerIds.Count == 1)
+            {
+                OnAudioTrackReceived?.Invoke(track);
+            }
         }
 
         private void HandleNegotiationNeeded(string peerId)
@@ -593,11 +635,38 @@ namespace UnityVerseBridge.Core
         #region Public Properties
 
         public bool IsSignalingConnected => _isSignalingConnected;
+        public bool IsWebRtcConnected => _activeConnectionsCount > 0;
         public int ActiveConnectionsCount => _activeConnectionsCount;
         public List<string> ConnectedPeerIds => new List<string>(_connectedPeerIds);
         public PeerRole Role => peerRole;
         public string RoomId => roomId;
 
+        #endregion
+        
+        #region IWebRtcManager Implementation
+        
+        public void Connect(string roomId)
+        {
+            if (peerRole == PeerRole.Host)
+            {
+                StartAsHost(roomId);
+            }
+            else
+            {
+                JoinAsClient(roomId);
+            }
+        }
+        
+        public void Disconnect()
+        {
+            DisconnectAll();
+        }
+        
+        public void SendDataChannelMessage(object messageData)
+        {
+            BroadcastDataChannelMessage(messageData);
+        }
+        
         #endregion
     }
 }

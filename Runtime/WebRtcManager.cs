@@ -10,7 +10,7 @@ using UnityVerseBridge.Core.Signaling.Data;
 
 namespace UnityVerseBridge.Core
 {
-    public class WebRtcManager : MonoBehaviour
+    public class WebRtcManager : MonoBehaviour, IWebRtcManager
     {
         [Header("Configuration")]
         [Tooltip("WebRTC 연결 설정을 담은 객체입니다.")]
@@ -36,7 +36,7 @@ namespace UnityVerseBridge.Core
         private bool isNegotiating = false; // 협상 진행 중 여부
         private MediaStream sendStream; // 보낼 트랙들을 담을 스트림
 
-        // --- Public Events ---
+        // --- Public Events (IWebRtcManager implementation) ---
         public event Action OnSignalingConnected;
         public event Action OnSignalingDisconnected;
         public event Action OnWebRtcConnected;
@@ -45,6 +45,13 @@ namespace UnityVerseBridge.Core
         public event Action OnDataChannelClosed;
         public event Action<string> OnDataChannelMessageReceived;
         public event Action<MediaStreamTrack> OnTrackReceived;
+        
+        // MultiPeer events (not used in 1:1 mode, but required by interface)
+        public event Action<string> OnPeerConnected { add { } remove { } }
+        public event Action<string> OnPeerDisconnected { add { } remove { } }
+        public event Action<string, string> OnMultiPeerDataChannelMessageReceived { add { } remove { } }
+        public event Action<string, MediaStreamTrack> OnMultiPeerVideoTrackReceived { add { } remove { } }
+        public event Action<string, MediaStreamTrack> OnMultiPeerAudioTrackReceived { add { } remove { } }
         /// <summary>
         /// 원격 피어로부터 비디오 트랙을 수신했을 때 발생하는 이벤트입니다.
         /// </summary>
@@ -841,6 +848,20 @@ namespace UnityVerseBridge.Core
         public void SetRole(bool isOffererRole)
         {
             this.isOfferer = isOffererRole;
+        }
+        
+        // IWebRtcManager interface methods
+        public void Connect(string roomId)
+        {
+            // WebRtcManager doesn't use roomId directly - it's handled by the app
+            // This method is here for interface compatibility
+            Debug.Log($"[WebRtcManager] Connect called with roomId: {roomId}");
+            StartPeerConnection();
+        }
+        
+        public void Disconnect()
+        {
+            DisconnectPeerConnection();
         }
     }
 }
