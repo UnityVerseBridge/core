@@ -1,6 +1,5 @@
 using System;
 using Unity.WebRTC;
-using UnityEngine.Events;
 using UnityVerseBridge.Core.Signaling;
 
 namespace UnityVerseBridge.Core
@@ -37,8 +36,8 @@ namespace UnityVerseBridge.Core
         event Action OnWebRtcConnected;
         event Action OnWebRtcDisconnected;
         event Action<string> OnDataChannelMessageReceived;
-        event UnityAction<MediaStreamTrack> OnVideoTrackReceived;
-        event UnityAction<MediaStreamTrack> OnAudioTrackReceived;
+        event Action<MediaStreamTrack> OnVideoTrackReceived;
+        event Action<MediaStreamTrack> OnAudioTrackReceived;
         
         // 이벤트 - 1:N 연결용 (MultiPeer에서만 사용)
         event Action<string> OnPeerConnected;

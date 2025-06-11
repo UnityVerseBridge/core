@@ -41,10 +41,7 @@ namespace UnityVerseBridge.Core
         // 이벤트 (IWebRtcManager implementation)
         public event Action<string> OnPeerConnected;
         public event Action<string> OnPeerDisconnected;
-        public event Action<string, string> OnDataChannelMessageReceived { add => OnMultiPeerDataChannelMessageReceived += value; remove => OnMultiPeerDataChannelMessageReceived -= value; }
         public event Action<string, MediaStreamTrack> OnTrackReceived;
-        public event Action<string, VideoStreamTrack> OnVideoTrackReceived { add => OnMultiPeerVideoTrackReceived += value; remove => OnMultiPeerVideoTrackReceived -= value; }
-        public event Action<string, AudioStreamTrack> OnAudioTrackReceived { add => OnMultiPeerAudioTrackReceived += value; remove => OnMultiPeerAudioTrackReceived -= value; }
         public event Action OnSignalingConnected;
         public event Action OnSignalingDisconnected;
         
@@ -57,8 +54,8 @@ namespace UnityVerseBridge.Core
         public event Action OnWebRtcConnected;
         public event Action OnWebRtcDisconnected;
         public event Action<string> OnDataChannelMessageReceived;
-        public event UnityEngine.Events.UnityAction<MediaStreamTrack> OnVideoTrackReceived;
-        public event UnityEngine.Events.UnityAction<MediaStreamTrack> OnAudioTrackReceived;
+        public event Action<MediaStreamTrack> OnVideoTrackReceived;
+        public event Action<MediaStreamTrack> OnAudioTrackReceived;
 
         public enum PeerRole
         {
@@ -644,6 +641,14 @@ namespace UnityVerseBridge.Core
         #endregion
         
         #region IWebRtcManager Implementation
+        
+        public void SetConfiguration(WebRtcConfiguration webRtcConfiguration)
+        {
+            if (webRtcConfiguration != null)
+            {
+                this.configuration = webRtcConfiguration;
+            }
+        }
         
         public void Connect(string roomId)
         {

@@ -55,11 +55,11 @@ namespace UnityVerseBridge.Core
         /// <summary>
         /// 원격 피어로부터 비디오 트랙을 수신했을 때 발생하는 이벤트입니다.
         /// </summary>
-        public event Action<VideoStreamTrack> OnVideoTrackReceived; // 비디오 트랙 전용 이벤트 추가
+        public event Action<MediaStreamTrack> OnVideoTrackReceived; // IWebRtcManager interface compatibility
         /// <summary>
         /// 원격 피어로부터 오디오 트랙을 수신했을 때 발생하는 이벤트입니다.
         /// </summary>
-        public event Action<AudioStreamTrack> OnAudioTrackReceived; // 오디오 트랙 전용 이벤트 추가
+        public event Action<MediaStreamTrack> OnAudioTrackReceived; // IWebRtcManager interface compatibility
 
         // --- Public Properties ---
         public bool IsSignalingConnected => _isSignalingConnected;
@@ -857,11 +857,6 @@ namespace UnityVerseBridge.Core
             // This method is here for interface compatibility
             Debug.Log($"[WebRtcManager] Connect called with roomId: {roomId}");
             StartPeerConnection();
-        }
-        
-        public void Disconnect()
-        {
-            DisconnectPeerConnection();
         }
     }
 }

@@ -15,29 +15,7 @@ namespace UnityVerseBridge.Core.Signaling.Messages
         }
     }
     
-    [System.Serializable]
-    public class PeerJoinedMessage : SignalingMessageBase
-    {
-        public string peerId;
-        public string clientType;
-        public string role; // Added to match server format
-        
-        public PeerJoinedMessage()
-        {
-            type = "peer-joined";
-        }
-    }
-    
-    [System.Serializable]
-    public class ClientReadyMessage : SignalingMessageBase
-    {
-        public string peerId;
-        
-        public ClientReadyMessage()
-        {
-            type = "client-ready";
-        }
-    }
+    // PeerJoinedMessage and ClientReadyMessage moved to RoomMessages.cs to avoid duplication
     
     [System.Serializable]
     public class ErrorMessage : SignalingMessageBase
