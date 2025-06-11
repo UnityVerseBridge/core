@@ -99,10 +99,22 @@ namespace UnityVerseBridge.Core.Signaling
 
         public async Task SendMessage<T>(T message) where T : SignalingMessageBase
         {
+            if (message == null)
+            {
+                Debug.LogWarning("[SignalingClient] Cannot send null message.");
+                return;
+            }
+            
             if (!IsConnected)
             {
-                Debug.LogWarning("Cannot send message, WebSocket adapter is not connected or open.");
+                Debug.LogWarning("[SignalingClient] Cannot send message, WebSocket adapter is not connected or open.");
                 return; // Task<bool> 등으로 실패 반환 고려
+            }
+            
+            if (webSocketAdapter == null)
+            {
+                Debug.LogError("[SignalingClient] WebSocket adapter is null.");
+                return;
             }
 
             try
@@ -113,7 +125,7 @@ namespace UnityVerseBridge.Core.Signaling
             }
             catch (Exception e)
             {
-                Debug.LogError($"Failed to serialize or send message via adapter: {e.Message}");
+                Debug.LogError($"[SignalingClient] Failed to serialize or send message via adapter: {e.Message}");
             }
         }
 
@@ -144,6 +156,8 @@ namespace UnityVerseBridge.Core.Signaling
                     return;
                 }
                 
+                Debug.Log($"[SignalingClient] Received message: {messageJson}");
+                
                 // JSON 형식 기본 검증
                 // WebSocket 메시지는 다양한 형식일 수 있으므로 기본 검증만 수행
                 messageJson = messageJson.Trim();
@@ -156,11 +170,12 @@ namespace UnityVerseBridge.Core.Signaling
                 var baseMessage = JsonUtility.FromJson<SignalingMessageBase>(messageJson);
                 if (baseMessage != null && !string.IsNullOrEmpty(baseMessage.type)) 
                 {
+                    Debug.Log($"[SignalingClient] Message type: {baseMessage.type}");
                     OnSignalingMessageReceived?.Invoke(baseMessage.type, messageJson);
                 } 
                 else 
                 { 
-                    Debug.LogWarning($"[SignalingClient] Received message without type: {messageJson}"); 
+                    Debug.LogWarning($"[SignalingClient] Received message without type: {messageJson.Substring(0, Math.Min(messageJson.Length, 200))}"); 
                 }
             } 
             catch (Exception e) 
@@ -178,9 +193,35 @@ namespace UnityVerseBridge.Core.Signaling
 
         private void HandleAdapterClose(ushort code)
         {
+            Debug.Log($"[SignalingClient] WebSocket closed with code: {code}");
+            
+            // Common close codes:
+            // 1000 - Normal closure
+            // 1001 - Going away
+            // 1002 - Protocol error
+            // 1003 - Unsupported data
+            // 1006 - Abnormal closure
+            // 1008 - Policy violation (auth failure)
+            // 1009 - Message too big
+            // 1011 - Internal server error
+            
+            string reason = code switch
+            {
+                1000 => "Normal closure",
+                1001 => "Going away",
+                1002 => "Protocol error",
+                1003 => "Unsupported data",
+                1006 => "Abnormal closure",
+                1008 => "Policy violation (possibly authentication required)",
+                1009 => "Message too big",
+                1011 => "Internal server error",
+                _ => "Unknown reason"
+            };
+            
+            Debug.Log($"[SignalingClient] Close reason: {reason}");
+            
             // Disconnect 메서드에서 이벤트 구독 해지를 먼저 하므로, 여기서는 이벤트 발생만 처리
             OnDisconnected?.Invoke();
-             // 필요시 webSocketAdapter = null; 처리 (Disconnect에서 이미 할 수 있음)
         }
     }
 }

@@ -121,12 +121,13 @@ namespace UnityVerseBridge.Core.Signaling.Adapters
         {
             if (_state != CoreWebSocketState.Open)
             {
-                Debug.LogError("[SystemWebSocket] Cannot send - not open");
+                Debug.LogError($"[SystemWebSocket] Cannot send - not open. State: {_state}");
                 return;
             }
 
             try
             {
+                Debug.Log($"[SystemWebSocket] Sending text: {message}");
                 var bytes = Encoding.UTF8.GetBytes(message);
                 await _webSocket.SendAsync(
                     new ArraySegment<byte>(bytes),
@@ -134,6 +135,7 @@ namespace UnityVerseBridge.Core.Signaling.Adapters
                     true,
                     _cancellationTokenSource.Token
                 );
+                Debug.Log("[SystemWebSocket] Text sent successfully");
             }
             catch (Exception ex)
             {
