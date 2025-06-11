@@ -21,7 +21,7 @@ namespace UnityVerseBridge.Core
     {
         [Header("Haptic Settings")]
         [SerializeField] private bool enableHaptics = true;
-        [SerializeField] private bool useCustomPatterns = true;
+        // [SerializeField] private bool useCustomPatterns = true; // Not implemented yet
         [Range(0.1f, 2f)]
         [SerializeField] private float intensityMultiplier = 1f;
         
@@ -35,7 +35,7 @@ namespace UnityVerseBridge.Core
         [SerializeField] private bool debugMode = false;
         
         private UnityVerseBridgeManager bridgeManager;
-        private IWebRtcManager webRtcManager;
+        private WebRtcManager webRtcManager;
         private UnityVerseBridgeManager.BridgeMode mode;
         
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -45,12 +45,12 @@ namespace UnityVerseBridge.Core
 #endif
         
         // Host mode - input tracking
-        private float lastTriggerValue = 0f;
-        private float lastGripValue = 0f;
+        // private float lastTriggerValue = 0f; // Not used currently
+        // private float lastGripValue = 0f; // Not used currently
         
         private bool isInitialized = false;
 
-        public void Initialize(UnityVerseBridgeManager manager, IWebRtcManager rtcManager, UnityVerseBridgeManager.BridgeMode bridgeMode)
+        public void Initialize(UnityVerseBridgeManager manager, WebRtcManager rtcManager, UnityVerseBridgeManager.BridgeMode bridgeMode)
         {
             bridgeManager = manager;
             webRtcManager = rtcManager;

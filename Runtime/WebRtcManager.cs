@@ -10,7 +10,7 @@ using UnityVerseBridge.Core.Signaling.Data;
 
 namespace UnityVerseBridge.Core
 {
-    public class WebRtcManager : MonoBehaviour, IWebRtcManager
+    public class WebRtcManager : MonoBehaviour
     {
         [Header("Configuration")]
         [Tooltip("WebRTC 연결 설정을 담은 객체입니다.")]

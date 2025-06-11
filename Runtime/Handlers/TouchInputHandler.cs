@@ -30,7 +30,7 @@ namespace UnityVerseBridge.Core
         [SerializeField] private int maxSimultaneousTouches = 5;
         
         private UnityVerseBridgeManager bridgeManager;
-        private IWebRtcManager webRtcManager;
+        private WebRtcManager webRtcManager;
         private UnityVerseBridgeManager.BridgeMode mode;
         
         // Client mode
@@ -44,7 +44,7 @@ namespace UnityVerseBridge.Core
         
         private bool isInitialized = false;
 
-        public void Initialize(UnityVerseBridgeManager manager, IWebRtcManager rtcManager, UnityVerseBridgeManager.BridgeMode bridgeMode)
+        public void Initialize(UnityVerseBridgeManager manager, WebRtcManager rtcManager, UnityVerseBridgeManager.BridgeMode bridgeMode)
         {
             bridgeManager = manager;
             webRtcManager = rtcManager;

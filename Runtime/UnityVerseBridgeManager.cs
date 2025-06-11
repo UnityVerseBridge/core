@@ -6,6 +6,7 @@ using Unity.WebRTC;
 using UnityVerseBridge.Core.Signaling;
 using UnityVerseBridge.Core.Signaling.Data;
 using UnityVerseBridge.Core.Signaling.Adapters;
+using UnityVerseBridge.Core.Signaling.Messages;
 using UnityVerseBridge.Core.DataChannel.Data;
 
 namespace UnityVerseBridge.Core
@@ -54,7 +55,7 @@ namespace UnityVerseBridge.Core
         #endregion
 
         #region Private Fields
-        private IWebRtcManager webRtcManager;
+        private WebRtcManager webRtcManager;
         private MonoBehaviour webRtcManagerBehaviour;
         private ISignalingClient signalingClient;
         private SystemWebSocketAdapter webSocketAdapter;
@@ -81,7 +82,7 @@ namespace UnityVerseBridge.Core
         public bool IsInitialized => isInitialized;
         public bool IsConnected => webRtcManager?.IsWebRtcConnected ?? false;
         public BridgeMode Mode => bridgeMode;
-        public IWebRtcManager WebRtcManager => webRtcManager;
+        public WebRtcManager WebRtcManager => webRtcManager;
         #endregion
 
         #region Unity Lifecycle

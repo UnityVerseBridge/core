@@ -15,7 +15,7 @@ namespace UnityVerseBridge.Core
         [SerializeField] private RenderTexture streamTexture;
         [SerializeField] private int videoWidth = 1280;
         [SerializeField] private int videoHeight = 720;
-        [SerializeField] private int videoFramerate = 30;
+        // [SerializeField] private int videoFramerate = 30; // Not used currently
         
         [Header("Video Settings - Client")]
         [SerializeField] private UnityEngine.UI.RawImage displayImage;
@@ -26,14 +26,14 @@ namespace UnityVerseBridge.Core
         [SerializeField] private bool useMixedReality = false; // For Quest MR
         
         private UnityVerseBridgeManager bridgeManager;
-        private IWebRtcManager webRtcManager;
+        private WebRtcManager webRtcManager;
         private UnityVerseBridgeManager.BridgeMode mode;
         
         private VideoStreamTrack videoTrack;
         private VideoStreamTrack receivedVideoTrack;
         private bool isInitialized = false;
 
-        public void Initialize(UnityVerseBridgeManager manager, IWebRtcManager rtcManager, UnityVerseBridgeManager.BridgeMode bridgeMode)
+        public void Initialize(UnityVerseBridgeManager manager, WebRtcManager rtcManager, UnityVerseBridgeManager.BridgeMode bridgeMode)
         {
             bridgeManager = manager;
             webRtcManager = rtcManager;

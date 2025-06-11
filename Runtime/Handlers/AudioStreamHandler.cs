@@ -24,7 +24,7 @@ namespace UnityVerseBridge.Core
         [SerializeField] private int recordingBufferLength = 1;
         
         private UnityVerseBridgeManager bridgeManager;
-        private IWebRtcManager webRtcManager;
+        private WebRtcManager webRtcManager;
         private UnityVerseBridgeManager.BridgeMode mode;
         
         // Audio components
@@ -38,7 +38,7 @@ namespace UnityVerseBridge.Core
         private bool isReceiving = false;
         private bool isInitialized = false;
 
-        public void Initialize(UnityVerseBridgeManager manager, IWebRtcManager rtcManager, UnityVerseBridgeManager.BridgeMode bridgeMode)
+        public void Initialize(UnityVerseBridgeManager manager, WebRtcManager rtcManager, UnityVerseBridgeManager.BridgeMode bridgeMode)
         {
             bridgeManager = manager;
             webRtcManager = rtcManager;
