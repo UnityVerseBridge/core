@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
@@ -95,6 +96,32 @@ namespace UnityVerseBridge.Core
                 return;
             }
             
+            // Delay initialization to ensure XR systems are ready
+            StartCoroutine(DelayedInitialization());
+        }
+        
+        private IEnumerator DelayedInitialization()
+        {
+            // Wait a frame to ensure XR systems are initialized
+            yield return null;
+            
+            // Wait for XR to be fully initialized (up to 2 seconds)
+            float timeout = 2f;
+            float elapsed = 0f;
+            
+            while (elapsed < timeout)
+            {
+                // Check if XR is initialized
+                if (UnityEngine.XR.XRSettings.enabled || IsVREnabled())
+                {
+                    Debug.Log("[UnityVerseBridgeManager] XR system detected, proceeding with initialization");
+                    break;
+                }
+                
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+            
             // Auto-detect and set client type based on platform
             if (IsQuestPlatform)
             {
@@ -105,6 +132,10 @@ namespace UnityVerseBridge.Core
             {
                 configuration.clientType = ClientType.Mobile;
                 LogDebug("[UnityVerseBridgeManager] Detected Mobile platform, setting clientType to Mobile");
+            }
+            else
+            {
+                LogDebug("[UnityVerseBridgeManager] Platform detection inconclusive, using configuration default");
             }
             
             InitializeBridge();
@@ -236,16 +267,33 @@ namespace UnityVerseBridge.Core
         
         private bool IsVREnabled()
         {
-            // First check if we have XR Management available
-#if UNITY_XR_MANAGEMENT
-            var xrSettings = UnityEngine.XR.Management.XRGeneralSettings.Instance;
-            if (xrSettings != null && xrSettings.Manager != null && xrSettings.Manager.activeLoader != null)
+            // Check multiple VR indicators
+            
+            // 1. Check XRSettings first (most reliable for runtime)
+            if (UnityEngine.XR.XRSettings.enabled && !string.IsNullOrEmpty(UnityEngine.XR.XRSettings.loadedDeviceName))
             {
+                Debug.Log($"[UnityVerseBridgeManager] Detected VR through XRSettings: {UnityEngine.XR.XRSettings.loadedDeviceName}");
                 return true;
+            }
+            
+            // 2. Check if we have XR Management available
+#if UNITY_XR_MANAGEMENT
+            try
+            {
+                var xrSettings = UnityEngine.XR.Management.XRGeneralSettings.Instance;
+                if (xrSettings != null && xrSettings.Manager != null && xrSettings.Manager.activeLoader != null)
+                {
+                    Debug.Log("[UnityVerseBridgeManager] Detected VR through XR Management");
+                    return true;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[UnityVerseBridgeManager] XR Management check failed: {e.Message}");
             }
 #endif
             
-            // Fallback: Check for Quest-specific components using reflection
+            // 3. Check for Quest-specific components using reflection
             try
             {
                 // Check for OVRManager
@@ -264,16 +312,41 @@ namespace UnityVerseBridge.Core
                     }
                 }
                 
-                // Check for XRSettings.enabled
-                if (UnityEngine.XR.XRSettings.enabled)
+                // Check for OVRCameraRig in scene
+                var ovrCameraRigType = System.Type.GetType("OVRCameraRig, Oculus.VR");
+                if (ovrCameraRigType != null)
                 {
-                    Debug.Log("[UnityVerseBridgeManager] Detected VR through XRSettings");
+                    var cameraRig = GameObject.FindFirstObjectByType(ovrCameraRigType);
+                    if (cameraRig != null)
+                    {
+                        Debug.Log("[UnityVerseBridgeManager] Detected Quest VR through OVRCameraRig in scene");
+                        return true;
+                    }
+                }
+                
+                // Check for MetaXRFeature
+                var metaXRFeatureType = System.Type.GetType("Meta.XR.MetaXRFeature, Meta.XR.Core.SDK");
+                if (metaXRFeatureType != null)
+                {
+                    Debug.Log("[UnityVerseBridgeManager] Detected MetaXRFeature type, assuming Quest VR");
                     return true;
                 }
             }
             catch (Exception e)
             {
                 Debug.LogWarning($"[UnityVerseBridgeManager] Error checking VR status: {e.Message}");
+            }
+            
+            // 4. Final fallback - check if we're on Android with Quest-like display
+            if (Application.platform == RuntimePlatform.Android)
+            {
+                // Check display refresh rate (Quest devices typically have 72Hz, 90Hz, or 120Hz)
+                float refreshRate = Screen.currentResolution.refreshRateRatio.value;
+                if (refreshRate >= 72f && refreshRate <= 120f)
+                {
+                    Debug.Log($"[UnityVerseBridgeManager] Detected possible Quest device based on Android + refresh rate: {refreshRate}Hz");
+                    return true;
+                }
             }
             
             return false;

@@ -184,6 +184,7 @@ namespace UnityVerseBridge.Core
                 this.signalingServerUrl = config.signalingServerUrl;
                 this.roomId = config.roomId;
                 this.isOfferer = config.clientType == ClientType.Quest;
+                this.autoStartPeerConnection = config.clientType == ClientType.Quest; // Quest should auto-start
                 Debug.Log($"[WebRtcManager] ConnectionConfig set - URL: {signalingServerUrl}, Room: {roomId}, IsOfferer: {isOfferer}");
             }
         }

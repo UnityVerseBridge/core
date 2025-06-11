@@ -9,7 +9,6 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
     /// Quest 앱으로부터 비디오 스트림을 수신하여 화면에 표시하는 모바일 특화 확장 컴포넌트
     /// VideoStreamHandler를 보완하는 추가 기능을 제공합니다.
     /// </summary>
-    [RequireComponent(typeof(UnityVerseBridgeManager))]
     public class MobileVideoExtension : MonoBehaviour
     {
         [Header("Display Settings")]
@@ -41,10 +40,18 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Awake()
         {
-            bridgeManager = GetComponent<UnityVerseBridgeManager>();
+            // Try to find manager in parent first (for child components)
+            bridgeManager = GetComponentInParent<UnityVerseBridgeManager>();
+            
+            // If not found in parent, search the scene
             if (bridgeManager == null)
             {
-                Debug.LogError("[MobileVideoExtension] UnityVerseBridgeManager not found!");
+                bridgeManager = FindFirstObjectByType<UnityVerseBridgeManager>();
+            }
+            
+            if (bridgeManager == null)
+            {
+                Debug.LogError("[MobileVideoExtension] UnityVerseBridgeManager not found in parent or scene!");
                 enabled = false;
                 return;
             }

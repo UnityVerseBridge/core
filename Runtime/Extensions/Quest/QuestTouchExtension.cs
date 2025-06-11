@@ -10,7 +10,6 @@ namespace UnityVerseBridge.Core.Extensions.Quest
     /// Quest VR에서 여러 모바일 기기로부터 터치 입력을 수신하고 시각화하는 확장 컴포넌트
     /// TouchInputHandler를 보완하는 Quest 특화 기능을 제공합니다.
     /// </summary>
-    [RequireComponent(typeof(UnityVerseBridgeManager))]
     public class QuestTouchExtension : MonoBehaviour
     {
         [Header("Touch Display Settings")]
@@ -64,12 +63,27 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Awake()
         {
-            bridgeManager = GetComponent<UnityVerseBridgeManager>();
+            // Try to find UnityVerseBridgeManager on the same GameObject or parent
+            bridgeManager = GetComponentInParent<UnityVerseBridgeManager>();
             if (bridgeManager == null)
             {
-                Debug.LogError("[QuestTouchExtension] UnityVerseBridgeManager not found!");
-                enabled = false;
-                return;
+                // If not found in parent hierarchy, try to find it in the scene
+                bridgeManager = FindFirstObjectByType<UnityVerseBridgeManager>();
+                
+                if (bridgeManager == null)
+                {
+                    Debug.LogError("[QuestTouchExtension] UnityVerseBridgeManager not found in parent hierarchy or scene! Please ensure UnityVerseBridgeManager exists.");
+                    enabled = false;
+                    return;
+                }
+                else
+                {
+                    Debug.Log("[QuestTouchExtension] Found UnityVerseBridgeManager in scene.");
+                }
+            }
+            else
+            {
+                Debug.Log("[QuestTouchExtension] Found UnityVerseBridgeManager in parent hierarchy.");
             }
         }
 

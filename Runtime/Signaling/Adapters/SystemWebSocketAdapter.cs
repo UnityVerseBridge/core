@@ -39,6 +39,13 @@ namespace UnityVerseBridge.Core.Signaling.Adapters
                 _state = CoreWebSocketState.Connecting;
                 
                 Debug.Log($"[SystemWebSocket] Connecting to {url}");
+            
+            // Parse URL to check for authentication
+            var uri = new Uri(url);
+            if (!string.IsNullOrEmpty(uri.Query))
+            {
+                Debug.Log($"[SystemWebSocket] URL contains query parameters: {uri.Query}");
+            }
                 
                 await _webSocket.ConnectAsync(new Uri(url), _cancellationTokenSource.Token);
                 

@@ -9,7 +9,6 @@ namespace UnityVerseBridge.Core.Extensions.Quest
     /// Quest VR에서 발생하는 다양한 상호작용 이벤트를 감지하고
     /// 해당 이벤트에 대한 햅틱 피드백을 Mobile 디바이스로 전송하는 확장 컴포넌트입니다.
     /// </summary>
-    [RequireComponent(typeof(UnityVerseBridgeManager))]
     public class QuestHapticExtension : MonoBehaviour
     {
         [Header("Haptic Settings")]
@@ -30,12 +29,27 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Awake()
         {
-            bridgeManager = GetComponent<UnityVerseBridgeManager>();
+            // Try to find UnityVerseBridgeManager on the same GameObject or parent
+            bridgeManager = GetComponentInParent<UnityVerseBridgeManager>();
             if (bridgeManager == null)
             {
-                Debug.LogError("[QuestHapticExtension] UnityVerseBridgeManager not found!");
-                enabled = false;
-                return;
+                // If not found in parent hierarchy, try to find it in the scene
+                bridgeManager = FindFirstObjectByType<UnityVerseBridgeManager>();
+                
+                if (bridgeManager == null)
+                {
+                    Debug.LogError("[QuestHapticExtension] UnityVerseBridgeManager not found in parent hierarchy or scene! Please ensure UnityVerseBridgeManager exists.");
+                    enabled = false;
+                    return;
+                }
+                else
+                {
+                    Debug.Log("[QuestHapticExtension] Found UnityVerseBridgeManager in scene.");
+                }
+            }
+            else
+            {
+                Debug.Log("[QuestHapticExtension] Found UnityVerseBridgeManager in parent hierarchy.");
             }
             
             // WebRtcManager 참조는 Start에서 가져옴 (초기화 순서 보장)

@@ -16,7 +16,6 @@ namespace UnityVerseBridge.Core.Extensions.Quest
     /// Quest VR에서 카메라 비디오를 스트리밍하는 확장 컴포넌트
     /// VideoStreamHandler를 보완하는 Quest 특화 기능을 제공합니다.
     /// </summary>
-    [RequireComponent(typeof(UnityVerseBridgeManager))]
     public class QuestVideoExtension : MonoBehaviour
     {
         [Header("Camera Settings")]
@@ -52,10 +51,16 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Awake()
         {
-            bridgeManager = GetComponent<UnityVerseBridgeManager>();
+            // Try to find manager in parent first, then in the scene
+            bridgeManager = GetComponentInParent<UnityVerseBridgeManager>();
             if (bridgeManager == null)
             {
-                Debug.LogError("[QuestVideoExtension] UnityVerseBridgeManager not found!");
+                bridgeManager = FindFirstObjectByType<UnityVerseBridgeManager>();
+            }
+            
+            if (bridgeManager == null)
+            {
+                Debug.LogError("[QuestVideoExtension] UnityVerseBridgeManager not found in parent or scene!");
                 enabled = false;
                 return;
             }

@@ -7,7 +7,6 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
     /// <summary>
     /// 모바일 앱에서 연결을 관리하는 간단한 UI 컴포넌트
     /// </summary>
-    [RequireComponent(typeof(UnityVerseBridgeManager))]
     public class MobileConnectionUI : MonoBehaviour
     {
         [Header("UI References")]
@@ -27,10 +26,18 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Awake()
         {
-            bridgeManager = GetComponent<UnityVerseBridgeManager>();
+            // Try to find manager in parent first (for child components)
+            bridgeManager = GetComponentInParent<UnityVerseBridgeManager>();
+            
+            // If not found in parent, search the scene
             if (bridgeManager == null)
             {
-                Debug.LogError("[MobileConnectionUI] UnityVerseBridgeManager not found!");
+                bridgeManager = FindFirstObjectByType<UnityVerseBridgeManager>();
+            }
+            
+            if (bridgeManager == null)
+            {
+                Debug.LogError("[MobileConnectionUI] UnityVerseBridgeManager not found in parent or scene!");
                 enabled = false;
                 return;
             }

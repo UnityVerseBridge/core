@@ -12,7 +12,6 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
     /// 모바일 터치 입력을 WebRTC로 전송하는 확장 컴포넌트
     /// TouchInputHandler를 보완하는 모바일 특화 기능을 제공합니다.
     /// </summary>
-    [RequireComponent(typeof(UnityVerseBridgeManager))]
     public class MobileInputExtension : MonoBehaviour
     {
         [Header("Touch Settings")]
@@ -47,10 +46,18 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Awake()
         {
-            bridgeManager = GetComponent<UnityVerseBridgeManager>();
+            // Try to find manager in parent first (for child components)
+            bridgeManager = GetComponentInParent<UnityVerseBridgeManager>();
+            
+            // If not found in parent, search the scene
             if (bridgeManager == null)
             {
-                Debug.LogError("[MobileInputExtension] UnityVerseBridgeManager not found!");
+                bridgeManager = FindFirstObjectByType<UnityVerseBridgeManager>();
+            }
+            
+            if (bridgeManager == null)
+            {
+                Debug.LogError("[MobileInputExtension] UnityVerseBridgeManager not found in parent or scene!");
                 enabled = false;
                 return;
             }
