@@ -16,11 +16,17 @@ Unity 환경에서 WebRTC를 통해 VR 기기(Quest)와 모바일 기기 간 실
 
 ```
 UnityVerseBridge.Core
+├── 통합 관리자
+│   └── UnityVerseBridgeManager (Host/Client 모드 자동 관리)
 ├── WebRTC 관리
-│   ├── WebRtcManager (1:1 연결)
-│   ├── MultiPeerWebRtcManager (1:N 연결)
-│   ├── AudioStreamManager (양방향 오디오)
+│   ├── WebRtcManager (1:1 및 1:N 연결 통합)
+│   ├── WebRtcConnectionHandler (개별 피어 연결 관리)
 │   └── DataChannel 통신
+├── 핸들러 시스템
+│   ├── VideoStreamHandler (비디오 스트리밍)
+│   ├── AudioStreamHandler (양방향 오디오)
+│   ├── TouchInputHandler (터치 입력)
+│   └── HapticHandler (햅틱 피드백)
 ├── 시그널링 (SignalingClient)
 │   ├── WebSocket 연결
 │   ├── SDP/ICE 교환
@@ -58,13 +64,19 @@ UnityVerseBridge.Core
 
 ```
 Runtime/
-├── WebRtcManager.cs          # WebRTC 1:1 연결 관리
-├── MultiPeerWebRtcManager.cs # WebRTC 1:N 연결 관리
-├── AudioStreamManager.cs     # 양방향 오디오 스트리밍
+├── UnityVerseBridgeManager.cs # 통합 관리자
+├── WebRtcManager.cs          # WebRTC 연결 관리 (1:1/1:N 통합)
+├── WebRtcConnectionHandler.cs # 개별 피어 연결 핸들러
 ├── WebRtcConfiguration.cs    # 설정 데이터 구조
 ├── ConnectionConfig.cs       # 연결 설정 ScriptableObject
+├── Handlers/                 # 기능별 핸들러
+│   ├── VideoStreamHandler.cs # 비디오 스트리밍
+│   ├── AudioStreamHandler.cs # 양방향 오디오
+│   ├── TouchInputHandler.cs  # 터치 입력 처리
+│   └── HapticHandler.cs      # 햅틱 피드백
 ├── Signaling/
 │   ├── SignalingClient.cs    # 시그널링 로직
+│   ├── ISignalingClient.cs   # 시그널링 인터페이스
 │   ├── IWebSocketClient.cs   # WebSocket 인터페이스
 │   ├── Adapters/             # 플랫폼별 WebSocket 구현
 │   ├── Messages/             # 메시지 타입 정의
@@ -73,13 +85,35 @@ Runtime/
 ├── DataChannel/
 │   └── Data/                 # 데이터 구조체
 └── Utils/
-    └── AuthenticationHelper.cs
+    └── UnityMainThreadDispatcher.cs
 ```
 
 ## 💡 핵심 컴포넌트 설명
 
+### UnityVerseBridgeManager
+모든 WebRTC 기능을 통합 관리하는 최상위 컴포넌트입니다.
+
+**주요 기능:**
+- Host/Client 모드 자동 설정
+- 모든 핸들러 자동 초기화 및 관리
+- ConnectionConfig 기반 설정
+- 프리팹을 통한 간편한 사용
+
+**사용 예시:**
+```csharp
+// 프리팹을 사용하거나 GameObject에 컴포넌트 추가
+GameObject bridgeObject = Instantiate(unityVerseBridgePrefab);
+// 또는
+var bridgeManager = gameObject.AddComponent<UnityVerseBridgeManager>();
+
+// ConnectionConfig ScriptableObject 설정
+bridgeManager.connectionConfig = myConnectionConfig;
+
+// 자동으로 모든 것이 초기화되고 연결됨
+```
+
 ### WebRtcManager
-WebRTC 연결의 전체 생명주기를 관리하는 중앙 컴포넌트입니다.
+WebRTC 연결의 전체 생명주기를 관리하는 컴포넌트입니다. 1:1 및 1:N 연결을 모두 지원합니다.
 
 **주요 기능:**
 - PeerConnection 생성 및 관리
@@ -87,29 +121,9 @@ WebRTC 연결의 전체 생명주기를 관리하는 중앙 컴포넌트입니�
 - ICE candidate 처리
 - 미디어 트랙 추가/제거
 - DataChannel 메시지 송수신
+- Multi-peer 모드 지원
 
-**사용 예시:**
-```csharp
-// 1. WebRtcManager 설정
-webRtcManager.SetRole(true); // true: Offerer, false: Answerer
-webRtcManager.SetupSignaling(signalingClient);
-
-// 2. 비디오 트랙 추가
-VideoStreamTrack videoTrack = new VideoStreamTrack(renderTexture);
-webRtcManager.AddVideoTrack(videoTrack);
-
-// 3. 오디오 트랙 추가 (AudioStreamManager 사용)
-AudioStreamTrack audioTrack = new AudioStreamTrack(audioSource);
-webRtcManager.AddAudioTrack(audioTrack);
-
-// 4. 데이터 전송
-var touchData = new TouchData { 
-    touchId = 0, 
-    positionX = 0.5f, 
-    positionY = 0.5f 
-};
-webRtcManager.SendDataChannelMessage(touchData);
-```
+**내부적으로 UnityVerseBridgeManager가 자동 관리하므로 직접 사용할 필요는 거의 없습니다.**
 
 ### SignalingClient
 WebSocket을 통해 시그널링 서버와 통신하며 WebRTC 연결 설정을 중재합니다.
@@ -121,44 +135,30 @@ WebSocket을 통해 시그널링 서버와 통신하며 WebRTC 연결 설정을 
 - 연결 상태 관리
 - 타겟팅된 메시지 전송 (1:N 연결 지원)
 
-### MultiPeerWebRtcManager
-하나의 호스트가 여러 클라이언트와 동시에 연결할 수 있는 1:N 연결을 지원합니다.
+### 핸들러 시스템
 
-**주요 기능:**
-- 호스트/클라이언트 역할 관리
-- 다중 PeerConnection 관리
-- 모든 피어에게 브로드캐스트
-- 특정 피어에게 타겟팅된 메시지 전송
-- 최대 연결 수 제한
+UnityVerseBridgeManager가 자동으로 관리하는 기능별 핸들러들입니다.
 
-**사용 예시:**
-```csharp
-// 호스트 설정 (Quest)
-multiPeerManager.SetRole(MultiPeerWebRtcManager.PeerRole.Host);
-multiPeerManager.maxConnections = 5;
-multiPeerManager.OnPeerConnected += OnPeerConnected;
+#### VideoStreamHandler
+비디오 스트리밍을 처리합니다.
+- Host: 카메라 영상을 RenderTexture로 캡처 및 전송
+- Client: 수신한 비디오를 UI에 표시
 
-// 모든 피어에게 비디오 브로드캐스트
-multiPeerManager.AddVideoTrackToAll(videoTrack);
-```
-
-### AudioStreamManager
-양방향 오디오 스트리밍을 관리하는 고수준 컴포넌트입니다.
-
-**주요 기능:**
-- 마이크 권한 처리
-- 오디오 송수신 관리
+#### AudioStreamHandler
+양방향 오디오 스트리밍을 관리합니다.
+- 마이크 권한 자동 처리
 - 플랫폼별 오디오 최적화
 - 볼륨 컨트롤
-- 오디오 레벨 모니터링
 
-**사용 예시:**
-```csharp
-// AudioStreamManager 설정
-audioManager.SetMicrophoneEnabled(true);
-audioManager.SetSpeakerEnabled(true);
-audioManager.OnMicrophoneLevelChanged += UpdateMicUI;
-```
+#### TouchInputHandler
+터치 입력을 처리합니다.
+- Client: 터치 입력을 감지하여 Host로 전송
+- Host: 수신한 터치 데이터를 VR 환경에 적용
+
+#### HapticHandler
+햅틱 피드백을 처리합니다.
+- Host: 햅틱 명령 전송
+- Client: 수신한 햅틱 명령을 디바이스에서 실행
 
 ### 플랫폼별 WebSocket 어댑터
 각 플랫폼의 특성에 맞는 WebSocket 구현체를 제공합니다.
@@ -188,36 +188,57 @@ Quest App (Offerer)                    Mobile App (Answerer)
 
 ## 🎮 사용 방법
 
-### 1. Offerer (Quest) 설정
+### 1. ConnectionConfig 생성
+Unity Editor에서 ScriptableObject 생성:
+1. Project 창에서 우클릭
+2. Create > UnityVerseBridge > Connection Config
+3. 설정값 입력:
+   - Signaling Server URL
+   - Room ID
+   - Client Type (Quest/Mobile)
+   - Auto Connect 옵션
+
+### 2. 프리팹 사용 (권장)
 ```csharp
-public class QuestAppInitializer : MonoBehaviour
+public class AppInitializer : MonoBehaviour
 {
+    [SerializeField] private GameObject unityVerseBridgePrefab;
+    [SerializeField] private ConnectionConfig connectionConfig;
+    
     void Start()
     {
         // WebRTC.Update() 코루틴 필수
         StartCoroutine(WebRTC.Update());
         
-        // WebRTC Manager 설정
-        webRtcManager.SetRole(true); // Offerer
-        webRtcManager.SetupSignaling(signalingClient);
+        // 프리팹 인스턴스화
+        GameObject bridge = Instantiate(unityVerseBridgePrefab);
         
-        // 시그널링 연결 후 PeerConnection 시작
-        webRtcManager.StartPeerConnection();
+        // ConnectionConfig 설정
+        var manager = bridge.GetComponent<UnityVerseBridgeManager>();
+        manager.connectionConfig = connectionConfig;
+        
+        // 자동으로 연결 시작됨
     }
 }
 ```
 
-### 2. Answerer (Mobile) 설정
+### 3. 수동 설정 (고급)
 ```csharp
-public class MobileAppInitializer : MonoBehaviour
+public class ManualSetup : MonoBehaviour
 {
     void Start()
     {
         StartCoroutine(WebRTC.Update());
         
-        webRtcManager.SetRole(false); // Answerer
-        webRtcManager.SetupSignaling(signalingClient);
-        // Answerer는 Offer를 기다림
+        // UnityVerseBridgeManager 추가
+        var bridgeManager = gameObject.AddComponent<UnityVerseBridgeManager>();
+        bridgeManager.connectionConfig = myConfig;
+        
+        // 필요한 경우 특정 핸들러만 활성화
+        bridgeManager.enableVideo = true;
+        bridgeManager.enableAudio = true;
+        bridgeManager.enableTouch = true;
+        bridgeManager.enableHaptics = false;
     }
 }
 ```
@@ -248,10 +269,12 @@ public class MobileAppInitializer : MonoBehaviour
 
 ## ✅ 최근 추가된 기능
 
-- ✅ 양방향 오디오 스트리밍 지원 (AudioStreamManager)
-- ✅ 1:N 연결 지원 (MultiPeerWebRtcManager)
-- ✅ 타겟팅된 시그널링 메시지 지원
-- ✅ 룸 기반 연결 관리 강화
+- ✅ 통합 UnityVerseBridgeManager 컴포넌트
+- ✅ 핸들러 기반 모듈식 아키텍처
+- ✅ ConnectionConfig ScriptableObject 지원
+- ✅ 프리팹을 통한 간편한 설정
+- ✅ WebRtcManager에 1:1 및 1:N 연결 통합
+- ✅ 플랫폼 독립적인 핸들러 시스템
 
 ## 🚧 향후 개발 계획
 
