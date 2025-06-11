@@ -25,9 +25,6 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         
         [Header("Stream Settings")]
         [SerializeField] private Vector2Int streamResolution = new Vector2Int(1280, 720);
-        #pragma warning disable 0414
-        [SerializeField] private int frameRate = 30;
-        #pragma warning restore 0414
         [SerializeField] private bool autoCreateRenderTexture = true;
         
         [Header("Quest MR Settings")]

@@ -24,8 +24,6 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
         [Tooltip("햅틱 피드백을 활성화합니다.")]
         [SerializeField] private bool enableHaptics = true;
         
-        [Tooltip("커스텀 진동 패턴을 사용합니다. (Android only)")]
-        [SerializeField] private bool useCustomPatterns = true;
         
         [Tooltip("진동 강도 배율입니다.")]
         [Range(0.1f, 2f)]
@@ -262,9 +260,8 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                     else
                     {
                         // 구형 Android는 패턴으로 강도 시뮬레이션
-                        #pragma warning disable 0414
-                        if (useCustomPatterns)
-                        #pragma warning restore 0414
+                        // 구형 Android에서는 항상 패턴 사용
+                        if (true)
                         {
                             long[] pattern = CreateVibratePattern(durationMs, intensity);
                             vibrator.Call("vibrate", pattern, -1);

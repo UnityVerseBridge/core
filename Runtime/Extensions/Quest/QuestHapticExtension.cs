@@ -16,20 +16,6 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         [Tooltip("컨트롤러 버튼 입력에 대한 햅틱 피드백을 활성화합니다.")]
         [SerializeField] private bool enableButtonHaptics = true;
         
-        [Tooltip("트리거 입력에 대한 햅틱 피드백을 활성화합니다.")]
-        #pragma warning disable 0414
-        [SerializeField] private bool enableTriggerHaptics = true;
-        #pragma warning restore 0414
-        
-        [Tooltip("그립 입력에 대한 햅틱 피드백을 활성화합니다.")]
-        #pragma warning disable 0414
-        [SerializeField] private bool enableGripHaptics = true;
-        #pragma warning restore 0414
-        
-        [Tooltip("손 추적 제스처에 대한 햅틱 피드백을 활성화합니다.")]
-        #pragma warning disable 0414
-        [SerializeField] private bool enableHandTrackingHaptics = true;
-        #pragma warning restore 0414
         
         [Tooltip("충돌 이벤트에 대한 햅틱 피드백을 활성화합니다.")]
         [SerializeField] private bool enableCollisionHaptics = true;
@@ -37,11 +23,6 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         [Header("Debug")]
         [SerializeField] private bool debugMode = false;
 
-        // 입력 상태 추적
-        #pragma warning disable 0414
-        private float lastTriggerValue = 0f;
-        private float lastGripValue = 0f;
-        #pragma warning restore 0414
         
         private UnityVerseBridgeManager bridgeManager;
         private WebRtcManager webRtcManager;
@@ -89,24 +70,6 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             if (enableButtonHaptics)
             {
                 DetectButtonInputs();
-            }
-
-            // 트리거 입력 감지
-            if (enableTriggerHaptics)
-            {
-                DetectTriggerInputs();
-            }
-
-            // 그립 입력 감지
-            if (enableGripHaptics)
-            {
-                DetectGripInputs();
-            }
-
-            // 손 추적 제스처 감지
-            if (enableHandTrackingHaptics && OVRPlugin.GetHandTrackingEnabled())
-            {
-                DetectHandGestures();
             }
 #else
             // Editor나 Quest가 아닌 환경에서는 키보드 입력으로 테스트
@@ -158,55 +121,6 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             }
         }
 
-        private void DetectTriggerInputs()
-        {
-            float rightTrigger = OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger, OVRInput.Controller.RTouch);
-            float leftTrigger = OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger, OVRInput.Controller.LTouch);
-            float currentTrigger = Mathf.Max(rightTrigger, leftTrigger);
-            
-            // 트리거를 완전히 당겼을 때
-            if (lastTriggerValue < 0.9f && currentTrigger >= 0.9f)
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateLong, 0.2f, 1.0f);
-                if (debugMode) Debug.Log("[QuestHapticExtension] Trigger fully pressed");
-            }
-            // 트리거를 절반 이상 당겼을 때
-            else if (lastTriggerValue < 0.5f && currentTrigger >= 0.5f)
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateShort, 0.05f, 0.3f);
-                if (debugMode) Debug.Log("[QuestHapticExtension] Trigger half pressed");
-            }
-            
-            lastTriggerValue = currentTrigger;
-        }
-
-        private void DetectGripInputs()
-        {
-            float rightGrip = OVRInput.Get(OVRInput.Axis1D.PrimaryHandTrigger, OVRInput.Controller.RTouch);
-            float leftGrip = OVRInput.Get(OVRInput.Axis1D.PrimaryHandTrigger, OVRInput.Controller.LTouch);
-            float currentGrip = Mathf.Max(rightGrip, leftGrip);
-            
-            // 그립 시작
-            if (lastGripValue < 0.5f && currentGrip >= 0.5f)
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateDefault, 0.1f, 0.7f);
-                if (debugMode) Debug.Log("[QuestHapticExtension] Grip started");
-            }
-            // 그립 해제
-            else if (lastGripValue >= 0.5f && currentGrip < 0.5f)
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateShort, 0.05f, 0.4f);
-                if (debugMode) Debug.Log("[QuestHapticExtension] Grip released");
-            }
-            
-            lastGripValue = currentGrip;
-        }
-
-        private void DetectHandGestures()
-        {
-            // 손 추적을 사용한 제스처 감지
-            // TODO: OVRHand API를 사용한 제스처 감지 구현
-        }
 #endif
 
         public void RequestHapticFeedback(HapticCommandType type, float duration = 0.1f, float intensity = 1.0f)

@@ -22,8 +22,6 @@ namespace UnityVerseBridge.Core.Editor
             ConnectionConfig config = ScriptableObject.CreateInstance<ConnectionConfig>();
             config.signalingServerUrl = "ws://localhost:8080";
             config.roomId = "quest-room-001";
-            config.clientType = ConnectionConfig.ClientType.Quest;
-            config.autoConnect = true;
             
             // Save ConnectionConfig as asset
             string configPath = "Assets/Resources/Prefabs/QuestConnectionConfig.asset";
@@ -31,12 +29,24 @@ namespace UnityVerseBridge.Core.Editor
             AssetDatabase.CreateAsset(config, configPath);
             
             // Configure bridge manager
-            bridgeManager.connectionConfig = config;
-            bridgeManager.bridgeMode = UnityVerseBridgeManager.BridgeMode.Host;
-            bridgeManager.enableVideo = true;
-            bridgeManager.enableAudio = true;
-            bridgeManager.enableTouch = true;
-            bridgeManager.enableHaptics = true;
+            bridgeManager.ConnectionConfig = config;
+            
+            // Use reflection to set private fields
+            var bridgeType = typeof(UnityVerseBridgeManager);
+            var bridgeModeField = bridgeType.GetField("bridgeMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            bridgeModeField.SetValue(bridgeManager, UnityVerseBridgeManager.BridgeMode.Host);
+            
+            var enableVideoField = bridgeType.GetField("enableVideo", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            enableVideoField.SetValue(bridgeManager, true);
+            
+            var enableAudioField = bridgeType.GetField("enableAudio", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            enableAudioField.SetValue(bridgeManager, true);
+            
+            var enableTouchField = bridgeType.GetField("enableTouch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            enableTouchField.SetValue(bridgeManager, true);
+            
+            var enableHapticsField = bridgeType.GetField("enableHaptics", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            enableHapticsField.SetValue(bridgeManager, true);
             
             // Add Quest-specific extensions
             #if UNITY_ANDROID || UNITY_EDITOR
@@ -79,8 +89,6 @@ namespace UnityVerseBridge.Core.Editor
             ConnectionConfig config = ScriptableObject.CreateInstance<ConnectionConfig>();
             config.signalingServerUrl = "ws://localhost:8080";
             config.roomId = "quest-room-001";
-            config.clientType = ConnectionConfig.ClientType.Mobile;
-            config.autoConnect = false; // Manual connection for mobile
             
             // Save ConnectionConfig as asset
             string configPath = "Assets/Resources/Prefabs/MobileConnectionConfig.asset";
@@ -88,12 +96,27 @@ namespace UnityVerseBridge.Core.Editor
             AssetDatabase.CreateAsset(config, configPath);
             
             // Configure bridge manager
-            bridgeManager.connectionConfig = config;
-            bridgeManager.bridgeMode = UnityVerseBridgeManager.BridgeMode.Client;
-            bridgeManager.enableVideo = true;
-            bridgeManager.enableAudio = true;
-            bridgeManager.enableTouch = true;
-            bridgeManager.enableHaptics = true;
+            bridgeManager.ConnectionConfig = config;
+            
+            // Use reflection to set private fields
+            var bridgeType = typeof(UnityVerseBridgeManager);
+            var bridgeModeField = bridgeType.GetField("bridgeMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            bridgeModeField.SetValue(bridgeManager, UnityVerseBridgeManager.BridgeMode.Client);
+            
+            var enableVideoField = bridgeType.GetField("enableVideo", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            enableVideoField.SetValue(bridgeManager, true);
+            
+            var enableAudioField = bridgeType.GetField("enableAudio", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            enableAudioField.SetValue(bridgeManager, true);
+            
+            var enableTouchField = bridgeType.GetField("enableTouch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            enableTouchField.SetValue(bridgeManager, true);
+            
+            var enableHapticsField = bridgeType.GetField("enableHaptics", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            enableHapticsField.SetValue(bridgeManager, true);
+            
+            var autoConnectField = bridgeType.GetField("autoConnect", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            autoConnectField.SetValue(bridgeManager, false); // Manual connection for mobile
             
             // Add Mobile-specific extensions
             rootGO.AddComponent<MobileVideoExtension>();
