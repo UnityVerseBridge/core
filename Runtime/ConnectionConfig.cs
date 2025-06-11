@@ -13,7 +13,7 @@ namespace UnityVerseBridge.Core
         [Header("Room Settings")]
         public string roomId = "room_123";
         public bool autoGenerateRoomId = false;
-        public bool useSessionRoomId = true; // 세션별로 다른 room ID 사용
+        public bool useSessionRoomId = false; // 세션별로 다른 room ID 사용 (테스트를 위해 비활성화)
         private string sessionRoomId = null; // 현재 세션의 room ID 캐시
         
         [Header("Connection Settings")]
