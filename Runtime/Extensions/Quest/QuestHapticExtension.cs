@@ -17,13 +17,19 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         [SerializeField] private bool enableButtonHaptics = true;
         
         [Tooltip("트리거 입력에 대한 햅틱 피드백을 활성화합니다.")]
+        #pragma warning disable 0414
         [SerializeField] private bool enableTriggerHaptics = true;
+        #pragma warning restore 0414
         
         [Tooltip("그립 입력에 대한 햅틱 피드백을 활성화합니다.")]
+        #pragma warning disable 0414
         [SerializeField] private bool enableGripHaptics = true;
+        #pragma warning restore 0414
         
         [Tooltip("손 추적 제스처에 대한 햅틱 피드백을 활성화합니다.")]
+        #pragma warning disable 0414
         [SerializeField] private bool enableHandTrackingHaptics = true;
+        #pragma warning restore 0414
         
         [Tooltip("충돌 이벤트에 대한 햅틱 피드백을 활성화합니다.")]
         [SerializeField] private bool enableCollisionHaptics = true;
@@ -32,8 +38,10 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         [SerializeField] private bool debugMode = false;
 
         // 입력 상태 추적
+        #pragma warning disable 0414
         private float lastTriggerValue = 0f;
         private float lastGripValue = 0f;
+        #pragma warning restore 0414
         
         private UnityVerseBridgeManager bridgeManager;
         private WebRtcManager webRtcManager;
@@ -54,7 +62,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Start()
         {
-            if (bridgeManager.bridgeMode != UnityVerseBridgeManager.BridgeMode.Host)
+            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
             {
                 Debug.LogWarning("[QuestHapticExtension] This component only works in Host mode. Disabling...");
                 enabled = false;

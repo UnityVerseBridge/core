@@ -75,7 +75,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Start()
         {
-            if (bridgeManager.bridgeMode != UnityVerseBridgeManager.BridgeMode.Host)
+            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
             {
                 Debug.LogWarning("[QuestTouchExtension] This component only works in Host mode. Disabling...");
                 enabled = false;

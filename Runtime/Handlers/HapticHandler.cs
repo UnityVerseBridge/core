@@ -21,7 +21,9 @@ namespace UnityVerseBridge.Core
     {
         [Header("Haptic Settings")]
         [SerializeField] private bool enableHaptics = true;
+        #pragma warning disable 0414
         [SerializeField] private bool useCustomPatterns = true;
+        #pragma warning restore 0414
         [Range(0.1f, 2f)]
         [SerializeField] private float intensityMultiplier = 1f;
         
@@ -45,8 +47,10 @@ namespace UnityVerseBridge.Core
 #endif
         
         // Host mode - input tracking
+        #pragma warning disable 0414
         private float lastTriggerValue = 0f;
         private float lastGripValue = 0f;
+        #pragma warning restore 0414
         
         private bool isInitialized = false;
 

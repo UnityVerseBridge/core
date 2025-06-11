@@ -25,7 +25,9 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         
         [Header("Stream Settings")]
         [SerializeField] private Vector2Int streamResolution = new Vector2Int(1280, 720);
+        #pragma warning disable 0414
         [SerializeField] private int frameRate = 30;
+        #pragma warning restore 0414
         [SerializeField] private bool autoCreateRenderTexture = true;
         
         [Header("Quest MR Settings")]
@@ -64,7 +66,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Start()
         {
-            if (bridgeManager.bridgeMode != UnityVerseBridgeManager.BridgeMode.Host)
+            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
             {
                 Debug.LogWarning("[QuestVideoExtension] This component only works in Host mode. Disabling...");
                 enabled = false;

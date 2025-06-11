@@ -52,7 +52,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Start()
         {
-            if (bridgeManager.bridgeMode != UnityVerseBridgeManager.BridgeMode.Client)
+            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Client)
             {
                 Debug.LogWarning("[MobileVideoExtension] This component only works in Client mode. Disabling...");
                 enabled = false;

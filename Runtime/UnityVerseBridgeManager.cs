@@ -83,6 +83,11 @@ namespace UnityVerseBridge.Core
         public bool IsConnected => webRtcManager?.IsWebRtcConnected ?? false;
         public BridgeMode Mode => bridgeMode;
         public WebRtcManager WebRtcManager => webRtcManager;
+        public ConnectionConfig ConnectionConfig 
+        { 
+            get => connectionConfig; 
+            set => connectionConfig = value; 
+        }
         #endregion
 
         #region Unity Lifecycle
