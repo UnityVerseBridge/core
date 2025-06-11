@@ -72,3 +72,11 @@ crashlytics-build.properties
 # Temporary auto-generated Android Assets
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# Connection configuration files (contain sensitive server information)
+*ConnectionConfig.asset
+*ConnectionConfig.asset.meta
+ConnectionConfig.asset
+ConnectionConfig.asset.meta
+**/ConnectionConfig.asset
+**/ConnectionConfig.asset.meta
