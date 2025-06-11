@@ -27,8 +27,12 @@ namespace UnityVerseBridge.Core.UI
         [SerializeField] private int maxRoomIdLength = 50;
         
         [Header("Events")]
-        [SerializeField] private UnityEvent<string> onRoomIdSubmitted = new UnityEvent<string>();
-        [SerializeField] private UnityEvent onScanQRRequested = new UnityEvent();
+        [SerializeField] private UnityEvent<string> m_OnRoomIdSubmitted = new UnityEvent<string>();
+        [SerializeField] private UnityEvent m_OnScanQRRequested = new UnityEvent();
+        
+        // Public event accessors
+        public UnityEvent<string> onRoomIdSubmitted => m_OnRoomIdSubmitted;
+        public UnityEvent onScanQRRequested => m_OnScanQRRequested;
         
         private bool isValidInput = false;
         
@@ -191,7 +195,7 @@ namespace UnityVerseBridge.Core.UI
             PlayerPrefs.Save();
             
             // Invoke event
-            onRoomIdSubmitted?.Invoke(roomId);
+            m_OnRoomIdSubmitted?.Invoke(roomId);
         }
         
         private void OnPasteButtonClicked()
@@ -232,7 +236,7 @@ namespace UnityVerseBridge.Core.UI
         private void OnScanQRButtonClicked()
         {
             ShowStatus("Opening QR scanner...", Color.yellow);
-            onScanQRRequested?.Invoke();
+            m_OnScanQRRequested?.Invoke();
         }
         
         /// <summary>

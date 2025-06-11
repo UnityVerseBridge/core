@@ -27,8 +27,12 @@ namespace UnityVerseBridge.Core.UI
         [SerializeField] private bool autoRefreshEnabled = true;
         
         [Header("Events")]
-        [SerializeField] private UnityEvent<string> onRoomSelected = new UnityEvent<string>();
-        [SerializeField] private UnityEvent<RoomInfo[]> onRoomsUpdated = new UnityEvent<RoomInfo[]>();
+        [SerializeField] private UnityEvent<string> m_OnRoomSelected = new UnityEvent<string>();
+        [SerializeField] private UnityEvent<RoomInfo[]> m_OnRoomsUpdated = new UnityEvent<RoomInfo[]>();
+        
+        // Public event accessors
+        public UnityEvent<string> onRoomSelected => m_OnRoomSelected;
+        public UnityEvent<RoomInfo[]> onRoomsUpdated => m_OnRoomsUpdated;
         
         private Coroutine autoRefreshCoroutine;
         private bool isRefreshing = false;
@@ -155,7 +159,7 @@ namespace UnityVerseBridge.Core.UI
                         ShowStatus($"Found {response.rooms.Length} active room{(response.rooms.Length != 1 ? "s" : "")}", Color.green);
                         
                         // Invoke event
-                        onRoomsUpdated?.Invoke(response.rooms);
+                        m_OnRoomsUpdated?.Invoke(response.rooms);
                     }
                     catch (System.Exception e)
                     {
@@ -230,7 +234,7 @@ namespace UnityVerseBridge.Core.UI
         private void SelectRoom(string roomId)
         {
             Debug.Log($"[RoomListUI] Room selected: {roomId}");
-            onRoomSelected?.Invoke(roomId);
+            m_OnRoomSelected?.Invoke(roomId);
         }
         
         private IEnumerator AutoRefresh()
