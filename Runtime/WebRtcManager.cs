@@ -7,6 +7,7 @@ using UnityEngine;
 using Unity.WebRTC;
 using UnityVerseBridge.Core.Signaling;
 using UnityVerseBridge.Core.Signaling.Data;
+using UnityVerseBridge.Core.Signaling.Messages;
 
 namespace UnityVerseBridge.Core
 {
@@ -1140,7 +1141,7 @@ namespace UnityVerseBridge.Core
             handler.OnAudioTrackReceived += (track) => HandleMultiPeerAudioTrackReceived(peerId, track);
             handler.OnDataChannelMessage += (message) => 
             {
-                OnMultiPeerDataChannelMessageReceived?.Invoke(peerId, message);
+                RaiseMultiPeerDataChannelMessageReceived(peerId, message);
                 // For 1:1 compatibility
                 if (_connectedPeerIds.Count == 1)
                 {
@@ -1263,7 +1264,7 @@ namespace UnityVerseBridge.Core
             switch (state)
             {
                 case RTCPeerConnectionState.Connected:
-                    OnPeerConnected?.Invoke(peerId);
+                    RaisePeerConnected(peerId);
                     // For 1:1 compatibility
                     if (_activeConnectionsCount == 1)
                     {
@@ -1274,7 +1275,7 @@ namespace UnityVerseBridge.Core
                 case RTCPeerConnectionState.Disconnected:
                 case RTCPeerConnectionState.Failed:
                 case RTCPeerConnectionState.Closed:
-                    OnPeerDisconnected?.Invoke(peerId);
+                    RaisePeerDisconnected(peerId);
                     // For 1:1 compatibility
                     if (_activeConnectionsCount == 0)
                     {
@@ -1287,7 +1288,7 @@ namespace UnityVerseBridge.Core
         private void HandleMultiPeerVideoTrackReceived(string peerId, MediaStreamTrack track)
         {
             Debug.Log($"[WebRtcManager] Video track received from {peerId}");
-            OnMultiPeerVideoTrackReceived?.Invoke(peerId, track);
+            RaiseMultiPeerVideoTrackReceived(peerId, track);
             
             // For 1:1 compatibility
             if (_connectedPeerIds.Count == 1)
@@ -1299,7 +1300,7 @@ namespace UnityVerseBridge.Core
         private void HandleMultiPeerAudioTrackReceived(string peerId, MediaStreamTrack track)
         {
             Debug.Log($"[WebRtcManager] Audio track received from {peerId}");
-            OnMultiPeerAudioTrackReceived?.Invoke(peerId, track);
+            RaiseMultiPeerAudioTrackReceived(peerId, track);
             
             // For 1:1 compatibility
             if (_connectedPeerIds.Count == 1)
@@ -1323,8 +1324,34 @@ namespace UnityVerseBridge.Core
             {
                 handler.Close();
                 connectionHandlers.Remove(peerId);
-                OnPeerDisconnected?.Invoke(peerId);
+                RaisePeerDisconnected(peerId);
             }
+        }
+        
+        // Event raising methods
+        private void RaisePeerConnected(string peerId)
+        {
+            OnPeerConnected?.Invoke(peerId);
+        }
+        
+        private void RaisePeerDisconnected(string peerId)
+        {
+            OnPeerDisconnected?.Invoke(peerId);
+        }
+        
+        private void RaiseMultiPeerDataChannelMessageReceived(string peerId, string message)
+        {
+            OnMultiPeerDataChannelMessageReceived?.Invoke(peerId, message);
+        }
+        
+        private void RaiseMultiPeerVideoTrackReceived(string peerId, MediaStreamTrack track)
+        {
+            OnMultiPeerVideoTrackReceived?.Invoke(peerId, track);
+        }
+        
+        private void RaiseMultiPeerAudioTrackReceived(string peerId, MediaStreamTrack track)
+        {
+            OnMultiPeerAudioTrackReceived?.Invoke(peerId, track);
         }
         
         // Public methods for multi-peer mode

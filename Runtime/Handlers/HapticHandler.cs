@@ -21,7 +21,7 @@ namespace UnityVerseBridge.Core
     {
         [Header("Haptic Settings")]
         [SerializeField] private bool enableHaptics = true;
-        // [SerializeField] private bool useCustomPatterns = true; // Not implemented yet
+        [SerializeField] private bool useCustomPatterns = true;
         [Range(0.1f, 2f)]
         [SerializeField] private float intensityMultiplier = 1f;
         
@@ -45,8 +45,8 @@ namespace UnityVerseBridge.Core
 #endif
         
         // Host mode - input tracking
-        // private float lastTriggerValue = 0f; // Not used currently
-        // private float lastGripValue = 0f; // Not used currently
+        private float lastTriggerValue = 0f;
+        private float lastGripValue = 0f;
         
         private bool isInitialized = false;
 
@@ -130,83 +130,23 @@ namespace UnityVerseBridge.Core
         #region Host Mode - Input Detection
         private void DetectButtonInputs()
         {
-            #if UNITY_ANDROID && !UNITY_EDITOR
-            // A button (right hand)
-            if (OVRInput.GetDown(OVRInput.Button.One, OVRInput.Controller.RTouch))
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateShort, 0.1f, 0.8f);
-                if (debugMode) Debug.Log("[HapticHandler] A button pressed");
-            }
-            
-            // B button (right hand)
-            if (OVRInput.GetDown(OVRInput.Button.Two, OVRInput.Controller.RTouch))
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateShort, 0.1f, 0.8f);
-                if (debugMode) Debug.Log("[HapticHandler] B button pressed");
-            }
-            
-            // X button (left hand)
-            if (OVRInput.GetDown(OVRInput.Button.Three, OVRInput.Controller.LTouch))
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateShort, 0.1f, 0.8f);
-                if (debugMode) Debug.Log("[HapticHandler] X button pressed");
-            }
-            
-            // Y button (left hand)
-            if (OVRInput.GetDown(OVRInput.Button.Four, OVRInput.Controller.LTouch))
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateShort, 0.1f, 0.8f);
-                if (debugMode) Debug.Log("[HapticHandler] Y button pressed");
-            }
-            #endif
+            // Button input detection should be implemented in platform-specific code
+            // This is a placeholder for the core package
+            if (debugMode) Debug.Log("[HapticHandler] DetectButtonInputs - Should be implemented in platform-specific code");
         }
 
         private void DetectTriggerInputs()
         {
-            #if UNITY_ANDROID && !UNITY_EDITOR
-            float rightTrigger = OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger, OVRInput.Controller.RTouch);
-            float leftTrigger = OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger, OVRInput.Controller.LTouch);
-            float currentTrigger = Mathf.Max(rightTrigger, leftTrigger);
-            
-            // Trigger fully pressed
-            if (lastTriggerValue < 0.9f && currentTrigger >= 0.9f)
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateLong, 0.2f, 1.0f);
-                if (debugMode) Debug.Log("[HapticHandler] Trigger fully pressed");
-            }
-            // Trigger half pressed
-            else if (lastTriggerValue < 0.5f && currentTrigger >= 0.5f)
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateShort, 0.05f, 0.3f);
-                if (debugMode) Debug.Log("[HapticHandler] Trigger half pressed");
-            }
-            
-            lastTriggerValue = currentTrigger;
-            #endif
+            // Trigger input detection should be implemented in platform-specific code
+            // This is a placeholder for the core package
+            if (debugMode) Debug.Log("[HapticHandler] DetectTriggerInputs - Should be implemented in platform-specific code");
         }
 
         private void DetectGripInputs()
         {
-            #if UNITY_ANDROID && !UNITY_EDITOR
-            float rightGrip = OVRInput.Get(OVRInput.Axis1D.PrimaryHandTrigger, OVRInput.Controller.RTouch);
-            float leftGrip = OVRInput.Get(OVRInput.Axis1D.PrimaryHandTrigger, OVRInput.Controller.LTouch);
-            float currentGrip = Mathf.Max(rightGrip, leftGrip);
-            
-            // Grip started
-            if (lastGripValue < 0.5f && currentGrip >= 0.5f)
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateDefault, 0.1f, 0.7f);
-                if (debugMode) Debug.Log("[HapticHandler] Grip started");
-            }
-            // Grip released
-            else if (lastGripValue >= 0.5f && currentGrip < 0.5f)
-            {
-                RequestHapticFeedback(HapticCommandType.VibrateShort, 0.05f, 0.4f);
-                if (debugMode) Debug.Log("[HapticHandler] Grip released");
-            }
-            
-            lastGripValue = currentGrip;
-            #endif
+            // Grip input detection should be implemented in platform-specific code
+            // This is a placeholder for the core package
+            if (debugMode) Debug.Log("[HapticHandler] DetectGripInputs - Should be implemented in platform-specific code");
         }
 
         public void RequestHapticFeedback(HapticCommandType type, float duration = 0.1f, float intensity = 1.0f)
@@ -458,7 +398,10 @@ namespace UnityVerseBridge.Core
                 webRtcManager.OnDataChannelMessageReceived -= OnDataChannelMessageReceived;
             }
             
-            webRtcManager.OnMultiPeerDataChannelMessageReceived -= OnMultiPeerDataChannelMessageReceived;
+            if (webRtcManager != null)
+            {
+                webRtcManager.OnMultiPeerDataChannelMessageReceived -= OnMultiPeerDataChannelMessageReceived;
+            }
         }
         #endregion
 

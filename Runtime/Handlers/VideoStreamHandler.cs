@@ -226,7 +226,10 @@ namespace UnityVerseBridge.Core
                 webRtcManager.OnWebRtcDisconnected -= OnClientDisconnected;
             }
             
-            webRtcManager.OnMultiPeerVideoTrackReceived -= OnMultiPeerVideoTrackReceived;
+            if (webRtcManager != null)
+            {
+                webRtcManager.OnMultiPeerVideoTrackReceived -= OnMultiPeerVideoTrackReceived;
+            }
             
             // Cleanup resources
             if (videoTrack != null)

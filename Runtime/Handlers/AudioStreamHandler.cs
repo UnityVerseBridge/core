@@ -291,7 +291,10 @@ namespace UnityVerseBridge.Core
                 webRtcManager.OnAudioTrackReceived -= OnAudioTrackReceived;
             }
             
-            webRtcManager.OnMultiPeerAudioTrackReceived -= OnMultiPeerAudioTrackReceived;
+            if (webRtcManager != null)
+            {
+                webRtcManager.OnMultiPeerAudioTrackReceived -= OnMultiPeerAudioTrackReceived;
+            }
             
             StopAudioStreaming();
         }
