@@ -289,6 +289,7 @@ namespace UnityVerseBridge.Core.Editor
             var config = ScriptableObject.CreateInstance<ConnectionConfig>();
             config.signalingServerUrl = "ws://localhost:8080";
             config.roomId = "test-room";
+            config.clientType = prefabName.Contains("Quest") ? ClientType.Quest : ClientType.Mobile;
             config.autoGenerateRoomId = false;
             
             // Ensure directory exists

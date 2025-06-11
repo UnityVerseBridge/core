@@ -10,6 +10,9 @@ namespace UnityVerseBridge.Core
         public bool requireAuthentication = false;
         public string authKey = "development-key";
         
+        [Header("Client Settings")]
+        public ClientType clientType = ClientType.Mobile;
+        
         [Header("Room Settings")]
         public string roomId = "room_123";
         public bool autoGenerateRoomId = false;

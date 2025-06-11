@@ -95,6 +95,18 @@ namespace UnityVerseBridge.Core
                 return;
             }
             
+            // Auto-detect and set client type based on platform
+            if (IsQuestPlatform)
+            {
+                configuration.clientType = ClientType.Quest;
+                LogDebug("[UnityVerseBridgeManager] Detected Quest platform, setting clientType to Quest");
+            }
+            else if (IsMobilePlatform)
+            {
+                configuration.clientType = ClientType.Mobile;
+                LogDebug("[UnityVerseBridgeManager] Detected Mobile platform, setting clientType to Mobile");
+            }
+            
             InitializeBridge();
         }
         
