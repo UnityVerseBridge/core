@@ -108,11 +108,8 @@ namespace UnityVerseBridge.Core
             webRtcManager.OnVideoTrackReceived += OnVideoTrackReceived;
             webRtcManager.OnWebRtcDisconnected += OnClientDisconnected;
             
-            // For MultiPeerWebRtcManager
-            if (webRtcManager is MultiPeerWebRtcManager multiPeerManager)
-            {
-                multiPeerManager.OnMultiPeerVideoTrackReceived += OnMultiPeerVideoTrackReceived;
-            }
+            // For multi-peer mode
+            webRtcManager.OnMultiPeerVideoTrackReceived += OnMultiPeerVideoTrackReceived;
         }
 
         private void OnHostConnected()
@@ -229,10 +226,7 @@ namespace UnityVerseBridge.Core
                 webRtcManager.OnWebRtcDisconnected -= OnClientDisconnected;
             }
             
-            if (webRtcManager is MultiPeerWebRtcManager multiPeerManager)
-            {
-                multiPeerManager.OnMultiPeerVideoTrackReceived -= OnMultiPeerVideoTrackReceived;
-            }
+            webRtcManager.OnMultiPeerVideoTrackReceived -= OnMultiPeerVideoTrackReceived;
             
             // Cleanup resources
             if (videoTrack != null)

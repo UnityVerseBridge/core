@@ -63,12 +63,12 @@ namespace UnityVerseBridge.Core
         public event Action<string> OnDataChannelMessageReceived;
         public event Action<MediaStreamTrack> OnTrackReceived;
         
-        // MultiPeer events (not used in 1:1 mode, but required by interface)
-        public event Action<string> OnPeerConnected { add { } remove { } }
-        public event Action<string> OnPeerDisconnected { add { } remove { } }
-        public event Action<string, string> OnMultiPeerDataChannelMessageReceived { add { } remove { } }
-        public event Action<string, MediaStreamTrack> OnMultiPeerVideoTrackReceived { add { } remove { } }
-        public event Action<string, MediaStreamTrack> OnMultiPeerAudioTrackReceived { add { } remove { } }
+        // MultiPeer events
+        public event Action<string> OnPeerConnected;
+        public event Action<string> OnPeerDisconnected;
+        public event Action<string, string> OnMultiPeerDataChannelMessageReceived;
+        public event Action<string, MediaStreamTrack> OnMultiPeerVideoTrackReceived;
+        public event Action<string, MediaStreamTrack> OnMultiPeerAudioTrackReceived;
         /// <summary>
         /// 원격 피어로부터 비디오 트랙을 수신했을 때 발생하는 이벤트입니다.
         /// </summary>

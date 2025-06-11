@@ -52,11 +52,8 @@ namespace UnityVerseBridge.Core
             webRtcManager.OnWebRtcDisconnected += OnWebRtcDisconnected;
             webRtcManager.OnAudioTrackReceived += OnAudioTrackReceived;
             
-            // For MultiPeerWebRtcManager
-            if (webRtcManager is MultiPeerWebRtcManager multiPeerManager)
-            {
-                multiPeerManager.OnMultiPeerAudioTrackReceived += OnMultiPeerAudioTrackReceived;
-            }
+            // For multi-peer mode
+            webRtcManager.OnMultiPeerAudioTrackReceived += OnMultiPeerAudioTrackReceived;
             
             isInitialized = true;
         }
@@ -294,10 +291,7 @@ namespace UnityVerseBridge.Core
                 webRtcManager.OnAudioTrackReceived -= OnAudioTrackReceived;
             }
             
-            if (webRtcManager is MultiPeerWebRtcManager multiPeerManager)
-            {
-                multiPeerManager.OnMultiPeerAudioTrackReceived -= OnMultiPeerAudioTrackReceived;
-            }
+            webRtcManager.OnMultiPeerAudioTrackReceived -= OnMultiPeerAudioTrackReceived;
             
             StopAudioStreaming();
         }
