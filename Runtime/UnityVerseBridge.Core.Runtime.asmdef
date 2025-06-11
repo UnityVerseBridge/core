@@ -3,7 +3,8 @@
     "rootNamespace": "UnityVerseBridge.Core",
     "references": [
         "Unity.WebRTC",
-        "Unity.TextMeshPro"
+        "Unity.TextMeshPro",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

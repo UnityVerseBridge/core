@@ -19,6 +19,7 @@ namespace UnityVerseBridge.Core
         [Header("Connection Settings")]
         public float connectionTimeout = 30f;
         public int maxReconnectAttempts = 5;
+        public int maxConnections = 5; // Maximum number of peer connections for multi-peer mode
         
         [Header("Debug")]
         public bool enableDetailedLogging = true;
