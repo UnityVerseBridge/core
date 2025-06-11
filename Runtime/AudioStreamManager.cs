@@ -209,8 +209,15 @@ namespace UnityVerseBridge.Core
         }
         
         // --- 수신 (스피커) 관련 ---
-        private void OnAudioTrackReceived(AudioStreamTrack audioTrack)
+        private void OnAudioTrackReceived(MediaStreamTrack track)
         {
+            var audioTrack = track as AudioStreamTrack;
+            if (audioTrack == null)
+            {
+                Debug.LogError("[AudioStreamManager] Received track is not an audio track");
+                return;
+            }
+            
             if (!enableSpeaker)
             {
                 Debug.Log("[AudioStreamManager] Speaker disabled, ignoring received audio track");

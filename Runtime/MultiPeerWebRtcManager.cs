@@ -23,7 +23,6 @@ namespace UnityVerseBridge.Core
         [Header("Role")]
         [SerializeField] private PeerRole peerRole = PeerRole.Host; // Host(1) or Client(N)
         [SerializeField] private string roomId = "default-room";
-        [SerializeField] private bool autoStartHost = false;
 
         [Header("State (Read-only)")]
         [SerializeField] private bool _isSignalingConnected = false;
