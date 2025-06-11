@@ -29,10 +29,11 @@ namespace UnityVerseBridge.Core // WebRtcConfiguration과 동일한 네임스페
             }
 
             // ICE 서버 목록 복사
-            if (config.iceServers != null && config.iceServers.Count > 0)
+            var iceServers = config.GetIceServers();
+            if (iceServers != null && iceServers.Count > 0)
             {
                 // List<RTCIceServer>를 RTCIceServer[] 배열로 변환
-                rtcConfig.iceServers = config.iceServers.ToArray();
+                rtcConfig.iceServers = iceServers.ToArray();
             }
             else
             {

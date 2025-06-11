@@ -8,6 +8,7 @@ using Unity.WebRTC;
 using UnityVerseBridge.Core.Signaling;
 using UnityVerseBridge.Core.Signaling.Data;
 using UnityVerseBridge.Core.Signaling.Messages;
+using UnityVerseBridge.Core.Threading;
 
 namespace UnityVerseBridge.Core
 {
@@ -15,7 +16,8 @@ namespace UnityVerseBridge.Core
     {
         [Header("Configuration")]
         [Tooltip("WebRTC 연결 설정을 담은 객체입니다.")]
-        [SerializeField] private WebRtcConfiguration configuration = new WebRtcConfiguration();
+        [SerializeField] private WebRtcConfiguration configuration;
+        private ConnectionConfig connectionConfig; // Added for reference
         [Tooltip("접속할 시그널링 서버의 주소입니다.")]
         [SerializeField] private string signalingServerUrl = "ws://localhost:8080";
         [Tooltip("이 WebRtcManager 인스턴스가 Offer를 생성하는 역할인지 여부입니다.")]
@@ -53,6 +55,10 @@ namespace UnityVerseBridge.Core
         private readonly Dictionary<string, WebRtcConnectionHandler> connectionHandlers = new Dictionary<string, WebRtcConnectionHandler>();
         private MediaStream sharedSendStream; // Shared stream for multi-peer broadcasting
         private readonly List<MediaStreamTrack> localTracks = new List<MediaStreamTrack>();
+        
+        // Thread safety
+        private ThreadSafeQueue<Action> mainThreadActions;
+        private readonly object stateLock = new object();
 
         // --- Public Events (IWebRtcManager implementation) ---
         public event Action OnSignalingConnected;
@@ -81,21 +87,68 @@ namespace UnityVerseBridge.Core
 
         // --- Public Properties ---
         public bool IsSignalingConnected => _isSignalingConnected;
-        public bool IsWebRtcConnected => enableMultiPeer ? _activeConnectionsCount > 0 : peerConnection?.ConnectionState == RTCPeerConnectionState.Connected;
-        public bool IsDataChannelOpen => enableMultiPeer ? connectionHandlers.Any(h => h.Value.IsDataChannelOpen) : dataChannel?.ReadyState == RTCDataChannelState.Open;
+        public bool IsWebRtcConnected
+        {
+            get
+            {
+                if (stateLock == null) return false;
+                
+                lock (stateLock)
+                {
+                    if (enableMultiPeer)
+                    {
+                        return _activeConnectionsCount > 0;
+                    }
+                    return peerConnection?.ConnectionState == RTCPeerConnectionState.Connected;
+                }
+            }
+        }
+        public bool IsDataChannelOpen
+        {
+            get
+            {
+                lock (stateLock)
+                {
+                    if (enableMultiPeer)
+                    {
+                        return connectionHandlers.Any(h => h.Value?.IsDataChannelOpen ?? false);
+                    }
+                    return dataChannel?.ReadyState == RTCDataChannelState.Open;
+                }
+            }
+        }
         public bool IsNegotiating => isNegotiating;
         public string SignalingServerUrl => signalingServerUrl;
         public int ActiveConnectionsCount => enableMultiPeer ? _activeConnectionsCount : (IsWebRtcConnected ? 1 : 0);
-        public List<string> ConnectedPeerIds => enableMultiPeer ? new List<string>(_connectedPeerIds) : (IsWebRtcConnected ? new List<string> { "default" } : new List<string>());
+        public List<string> ConnectedPeerIds
+        {
+            get
+            {
+                lock (stateLock)
+                {
+                    if (enableMultiPeer)
+                    {
+                        return new List<string>(_connectedPeerIds ?? new List<string>());
+                    }
+                    return IsWebRtcConnected ? new List<string> { "default" } : new List<string>();
+                }
+            }
+        }
 
         // --- Initialization ---
         void Awake()
         {
+            // Initialize thread-safe queue
+            mainThreadActions = new ThreadSafeQueue<Action>(500);
+            
             // SignalingClient 인스턴스화는 SetupSignaling에서 처리
             if (enableMultiPeer && isOfferer)
             {
                 sharedSendStream = new MediaStream();
             }
+            
+            // Start coroutine for WebRTC update (required)
+            StartCoroutine(WebRTC.Update());
         }
 
         /// <summary>
@@ -120,6 +173,19 @@ namespace UnityVerseBridge.Core
         public void SetConfiguration(WebRtcConfiguration config)
         {
              this.configuration = config ?? new WebRtcConfiguration();
+        }
+        
+        public void SetConnectionConfig(ConnectionConfig config)
+        {
+            this.connectionConfig = config;
+            if (config != null)
+            {
+                // Update relevant fields from ConnectionConfig
+                this.signalingServerUrl = config.signalingServerUrl;
+                this.roomId = config.roomId;
+                this.isOfferer = config.clientType == ClientType.Quest;
+                Debug.Log($"[WebRtcManager] ConnectionConfig set - URL: {signalingServerUrl}, Room: {roomId}, IsOfferer: {isOfferer}");
+            }
         }
 
         /// <summary>
@@ -152,14 +218,49 @@ namespace UnityVerseBridge.Core
         // --- MonoBehaviour Lifecycle ---
         void Update()
         {
+            // Process main thread actions from WebRTC callbacks
+            ProcessMainThreadActions();
+            
             // ISignalingClient 인터페이스에 DispatchMessages 추가했으므로 직접 호출
             signalingClient?.DispatchMessages();
             
             // Update connection state for multi-peer mode
             if (enableMultiPeer)
             {
-                _activeConnectionsCount = connectionHandlers.Count(p => p.Value.IsConnected);
-                _connectedPeerIds = connectionHandlers.Where(p => p.Value.IsConnected).Select(p => p.Key).ToList();
+                lock (stateLock)
+                {
+                    _activeConnectionsCount = connectionHandlers.Count(p => p.Value?.IsConnected ?? false);
+                    _connectedPeerIds = connectionHandlers.Where(p => p.Value?.IsConnected ?? false).Select(p => p.Key).ToList();
+                }
+            }
+        }
+        
+        private void ProcessMainThreadActions()
+        {
+            if (mainThreadActions == null) return;
+            
+            const int maxActionsPerFrame = 10;
+            int processedCount = 0;
+            
+            while (processedCount < maxActionsPerFrame && mainThreadActions.TryDequeue(out var action))
+            {
+                try
+                {
+                    action?.Invoke();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[WebRtcManager] Error processing main thread action: {e.Message}");
+                }
+                processedCount++;
+            }
+        }
+        
+        private void RunOnMainThread(Action action)
+        {
+            if (action != null)
+            {
+                mainThreadActions.Enqueue(action);
             }
         }
 
@@ -278,12 +379,23 @@ namespace UnityVerseBridge.Core
             // Multi-peer mode cleanup
             if (enableMultiPeer)
             {
+                // Close all connection handlers
                 foreach (var handler in connectionHandlers.Values.ToList())
                 {
                     handler.Close();
                 }
                 connectionHandlers.Clear();
+                
+                // Dispose all local tracks
+                foreach (var track in localTracks)
+                {
+                    track?.Dispose();
+                }
                 localTracks.Clear();
+                
+                // Dispose shared stream
+                sharedSendStream?.Dispose();
+                sharedSendStream = null;
             }
             else
             {
@@ -295,12 +407,75 @@ namespace UnityVerseBridge.Core
                     _isNegotiationCoroutineRunning = false;
                 }
 
-                dataChannel?.Close();
-                peerConnection?.Close();
+                // Clean up tracks and senders
+                CleanupTracksAndSenders();
+                
+                // Close data channel
+                if (dataChannel != null)
+                {
+                    dataChannel.OnOpen = null;
+                    dataChannel.OnClose = null;
+                    dataChannel.OnMessage = null;
+                    dataChannel.OnError = null;
+                    dataChannel.Close();
+                    dataChannel.Dispose();
+                    dataChannel = null;
+                }
+                
+                // Close peer connection
+                if (peerConnection != null)
+                {
+                    peerConnection.OnIceCandidate = null;
+                    peerConnection.OnIceConnectionChange = null;
+                    peerConnection.OnConnectionStateChange = null;
+                    peerConnection.OnDataChannel = null;
+                    peerConnection.OnTrack = null;
+                    peerConnection.OnNegotiationNeeded = null;
+                    peerConnection.Close();
+                    peerConnection.Dispose();
+                    peerConnection = null;
+                }
+                
+                // Dispose send stream
+                sendStream?.Dispose();
+                sendStream = null;
             }
+            
+            // Clear main thread action queue
+            mainThreadActions.Clear();
+            
+            // Reset states
+            _peerConnectionState = RTCPeerConnectionState.New;
+            _dataChannelState = RTCDataChannelState.Closed;
+            isNegotiating = false;
 
             await DisconnectSignaling();
             Debug.Log("[WebRtcManager] Disconnect finished.");
+        }
+        
+        private void CleanupTracksAndSenders()
+        {
+            if (peerConnection != null)
+            {
+                // Remove all senders and dispose tracks
+                foreach (var kvp in trackSenders)
+                {
+                    var track = kvp.Key;
+                    var sender = kvp.Value;
+                    
+                    try
+                    {
+                        peerConnection.RemoveTrack(sender);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning($"[WebRtcManager] Failed to remove track sender: {e.Message}");
+                    }
+                    
+                    track?.Dispose();
+                }
+            }
+            trackSenders.Clear();
         }
 
         // 트랙 관리를 위한 Dictionary 추가
@@ -549,8 +724,8 @@ namespace UnityVerseBridge.Core
         {
             if (peerConnection != null)
             {
-                Debug.LogWarning("PeerConnection exists. Closing previous.");
-                peerConnection.Close();
+                Debug.LogWarning("PeerConnection exists. Cleaning up previous.");
+                CleanupPeerConnection();
             }
             var rtcConfig = configuration.ToRTCConfiguration(); // 확장 메서드 사용
             peerConnection = new RTCPeerConnection(ref rtcConfig);
@@ -562,6 +737,28 @@ namespace UnityVerseBridge.Core
             peerConnection.OnDataChannel = HandleDataChannelReceived;
             peerConnection.OnTrack = HandleTrackReceived;
             peerConnection.OnNegotiationNeeded = HandleNegotiationNeeded;
+        }
+        
+        private void CleanupPeerConnection()
+        {
+            if (peerConnection != null)
+            {
+                // Clean up tracks first
+                CleanupTracksAndSenders();
+                
+                // Remove event handlers
+                peerConnection.OnIceCandidate = null;
+                peerConnection.OnIceConnectionChange = null;
+                peerConnection.OnConnectionStateChange = null;
+                peerConnection.OnDataChannel = null;
+                peerConnection.OnTrack = null;
+                peerConnection.OnNegotiationNeeded = null;
+                
+                // Close and dispose
+                peerConnection.Close();
+                peerConnection.Dispose();
+                peerConnection = null;
+            }
         }
 
         private void InternalCreateDataChannel()
@@ -872,6 +1069,12 @@ namespace UnityVerseBridge.Core
         // --- PeerConnection Event Handlers ---
         private void HandleIceCandidate(IceCandidateMessage candidateMessage)
         {
+            if (candidateMessage == null)
+            {
+                Debug.LogWarning("[WebRtcManager] Received null ICE candidate message.");
+                return;
+            }
+            
             if (peerConnection == null || string.IsNullOrEmpty(candidateMessage.candidate))
             {
                 Debug.LogWarning("[WebRtcManager] PeerConnection is null or candidate is empty. Cannot add ICE candidate.");

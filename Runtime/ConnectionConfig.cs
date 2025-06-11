@@ -21,6 +21,9 @@ namespace UnityVerseBridge.Core
         public int maxReconnectAttempts = 5;
         public int maxConnections = 5; // Maximum number of peer connections for multi-peer mode
         
+        [Header("WebRTC Settings")]
+        public WebRtcConfiguration webRtcConfiguration;
+        
         [Header("Debug")]
         public bool enableDetailedLogging = true;
         
@@ -28,7 +31,11 @@ namespace UnityVerseBridge.Core
         {
             if (autoGenerateRoomId)
             {
-                return System.Guid.NewGuid().ToString().Substring(0, 8);
+                if (string.IsNullOrEmpty(sessionRoomId))
+                {
+                    sessionRoomId = System.Guid.NewGuid().ToString().Substring(0, 8);
+                }
+                return sessionRoomId;
             }
             
             // 세션별 room ID 사용 (앱 실행마다 새로운 ID)
@@ -43,7 +50,8 @@ namespace UnityVerseBridge.Core
                 return sessionRoomId;
             }
             
-            return roomId;
+            // Null 체크 추가
+            return string.IsNullOrEmpty(roomId) ? "default-room" : roomId;
         }
         
         // 세션 room ID 재설정 (필요시 호출)

@@ -1,510 +1,429 @@
 using System;
-using System.Collections;
-using System.Threading.Tasks;
+using System.Reflection;
 using UnityEngine;
-using Unity.WebRTC;
+using UnityEngine.UI;
 using UnityVerseBridge.Core.Signaling;
-using UnityVerseBridge.Core.Signaling.Data;
-using UnityVerseBridge.Core.Signaling.Adapters;
-using UnityVerseBridge.Core.Signaling.Messages;
-using UnityVerseBridge.Core.DataChannel.Data;
 
 namespace UnityVerseBridge.Core
 {
     /// <summary>
-    /// 통합 UnityVerseBridge 매니저 컴포넌트
-    /// Host(Quest VR) 또는 Client(Mobile) 모드로 동작할 수 있습니다.
+    /// Unified manager for UnityVerseBridge with platform-specific settings
     /// </summary>
-    [DisallowMultipleComponent]
-    [DefaultExecutionOrder(-1000)] // 다른 컴포넌트보다 먼저 실행
+    [AddComponentMenu("UnityVerseBridge/UnityVerseBridge Manager")]
     public class UnityVerseBridgeManager : MonoBehaviour
     {
-        #region Enums
+        /// <summary>
+        /// Bridge operation mode
+        /// </summary>
         public enum BridgeMode
         {
-            Host,   // Quest VR (Offerer, Stream sender)
-            Client  // Mobile (Answerer, Stream receiver)
+            /// <summary>
+            /// Host mode - Used by Quest VR (streams video, receives touch)
+            /// </summary>
+            Host,
+            
+            /// <summary>
+            /// Client mode - Used by Mobile (receives video, sends touch)
+            /// </summary>
+            Client
         }
-
-        public enum ConnectionMode
-        {
-            SinglePeer,  // 1:1 connection (WebRtcManager)
-            MultiPeer    // 1:N connection (MultiPeerWebRtcManager)
-        }
-        #endregion
-
-        #region Configuration
-        [Header("Bridge Configuration")]
-        [SerializeField] private BridgeMode bridgeMode = BridgeMode.Host;
-        [SerializeField] private ConnectionMode connectionMode = ConnectionMode.SinglePeer;
-        [SerializeField] private ConnectionConfig connectionConfig;
+        [Header("Common Settings")]
+        [SerializeField] private ConnectionConfig configuration;
         [SerializeField] private WebRtcConfiguration webRtcConfiguration;
+        [SerializeField] private bool enableAutoConnect = true;
+        [SerializeField] private bool enableDebugLogging = true;
         
-        [Header("Auto Configuration")]
-        [SerializeField] private bool autoInitialize = true;
-        [SerializeField] private bool autoConnect = true;
+        [Header("Quest-Specific References")]
+        [SerializeField] private Camera vrCamera;
+        [SerializeField] private bool enableVideoStreaming = true;
+        [SerializeField] private bool enableTouchReceiving = true;
+        [SerializeField] private bool enableHapticFeedback = true;
+        [SerializeField] private Canvas touchCanvas;
         
-        [Header("Component Settings")]
-        [SerializeField] private bool enableVideo = true;
-        [SerializeField] private bool enableAudio = true;
-        [SerializeField] private bool enableTouch = true;
-        [SerializeField] private bool enableHaptics = true;
+        [Header("Mobile-Specific References")]
+        [SerializeField] private RawImage videoDisplay;
+        [SerializeField] private bool enableVideoReceiving = true;
+        [SerializeField] private bool enableTouchSending = true;
+        [SerializeField] private bool enableHapticReceiving = true;
+        [SerializeField] private GameObject connectionUI;
         
-        [Header("Debug")]
-        [SerializeField] private bool debugMode = false;
-        #endregion
-
-        #region Private Fields
+        // Runtime components
         private WebRtcManager webRtcManager;
-        private MonoBehaviour webRtcManagerBehaviour;
-        private ISignalingClient signalingClient;
-        private SystemWebSocketAdapter webSocketAdapter;
+        private GameObject bridgeComponents;
         
-        // Feature components
-        private VideoStreamHandler videoHandler;
-        private AudioStreamHandler audioHandler;
-        private TouchInputHandler touchHandler;
-        private HapticHandler hapticHandler;
+        // Platform detection
+        public bool IsQuestPlatform => Application.platform == RuntimePlatform.Android && IsVREnabled();
+        public bool IsMobilePlatform => (Application.platform == RuntimePlatform.Android && !IsVREnabled()) || 
+                                       Application.platform == RuntimePlatform.IPhonePlayer;
         
-        private string clientId;
-        private bool isInitialized = false;
-        #endregion
-
-        #region Unity Events
-        [Header("Events")]
-        public UnityEngine.Events.UnityEvent OnInitialized;
-        public UnityEngine.Events.UnityEvent OnConnected;
-        public UnityEngine.Events.UnityEvent OnDisconnected;
-        public UnityEngine.Events.UnityEvent<string> OnError;
-        #endregion
-
-        #region Properties
-        public bool IsInitialized => isInitialized;
-        public bool IsConnected => webRtcManager?.IsWebRtcConnected ?? false;
-        public BridgeMode Mode => bridgeMode;
-        public WebRtcManager WebRtcManager => webRtcManager;
-        public ConnectionConfig ConnectionConfig 
-        { 
-            get => connectionConfig; 
-            set => connectionConfig = value; 
-        }
-        #endregion
-
-        #region Unity Lifecycle
+        /// <summary>
+        /// Gets the current bridge mode based on platform
+        /// </summary>
+        public BridgeMode CurrentBridgeMode => IsQuestPlatform ? BridgeMode.Host : BridgeMode.Client;
+        
+        /// <summary>
+        /// Gets the current bridge mode (alias for CurrentBridgeMode)
+        /// </summary>
+        public BridgeMode Mode => CurrentBridgeMode;
+        
+        /// <summary>
+        /// Gets whether the bridge is initialized
+        /// </summary>
+        public bool IsInitialized => webRtcManager != null;
+        
+        /// <summary>
+        /// Gets the connection configuration
+        /// </summary>
+        public ConnectionConfig ConnectionConfig => configuration;
+        
+        // Quest-specific property accessors
+        public Camera QuestStreamCamera => vrCamera;
+        public RenderTexture QuestStreamTexture { get; set; }
+        public Canvas QuestTouchCanvas => touchCanvas;
+        
+        // Mobile-specific property accessors
+        public RawImage MobileVideoDisplay => videoDisplay;
+        public RectTransform MobileTouchArea { get; set; }
+        public Canvas MobileTouchFeedbackLayer { get; set; }
+        
         void Awake()
         {
-            // WebRTC.Update() 코루틴 시작 (필수)
-            StartCoroutine(WebRTC.Update());
-            
-            if (autoInitialize)
+            if (configuration == null)
             {
-                StartCoroutine(InitializeAfterDelay());
+                Debug.LogError("[UnityVerseBridgeManager] ConnectionConfig is required!");
+                enabled = false;
+                return;
             }
+            
+            InitializeBridge();
         }
-
-        void OnDestroy()
+        
+        private void InitializeBridge()
         {
-            Disconnect();
-            CleanupComponents();
-        }
-        #endregion
-
-        #region Initialization
-        private IEnumerator InitializeAfterDelay()
-        {
-            // 플랫폼별 초기화 지연
-            if (Application.platform == RuntimePlatform.OSXEditor || 
-                Application.platform == RuntimePlatform.OSXPlayer)
+            // Create container for bridge components
+            bridgeComponents = new GameObject("BridgeComponents");
+            bridgeComponents.transform.SetParent(transform);
+            
+            // Add WebRtcManager
+            webRtcManager = bridgeComponents.AddComponent<WebRtcManager>();
+            
+            // Pass the connection configuration to WebRtcManager
+            if (webRtcManager != null)
             {
-                yield return new WaitForSeconds(0.2f);
+                // Pass ConnectionConfig first
+                webRtcManager.SetConnectionConfig(configuration);
+                
+                // Then pass WebRtcConfiguration if available
+                if (webRtcConfiguration != null)
+                {
+                    webRtcManager.SetConfiguration(webRtcConfiguration);
+                }
+            }
+            
+            // Set debug logging
+            if (enableDebugLogging)
+            {
+                Debug.Log("[UnityVerseBridgeManager] Debug logging is enabled");
+                // Enable verbose logging for WebRTC components
+                Debug.unityLogger.logEnabled = true;
+                Debug.unityLogger.filterLogType = LogType.Log;
+            }
+            
+            // Initialize based on platform
+            if (IsQuestPlatform)
+            {
+                InitializeQuestComponents();
+            }
+            else if (IsMobilePlatform)
+            {
+                InitializeMobileComponents();
             }
             else
             {
-                yield return null;
+                Debug.LogWarning("[UnityVerseBridgeManager] Platform not detected. Initializing based on assigned references.");
+                
+                // Initialize based on what references are assigned
+                if (vrCamera != null)
+                {
+                    InitializeQuestComponents();
+                }
+                else if (videoDisplay != null)
+                {
+                    InitializeMobileComponents();
+                }
+            }
+        }
+        
+        private void InitializeQuestComponents()
+        {
+            LogDebug("[UnityVerseBridgeManager] Initializing Quest components");
+            
+            // Add QuestVideoExtension if video streaming is enabled
+            if (enableVideoStreaming)
+            {
+                var videoExtension = bridgeComponents.AddComponent<Extensions.Quest.QuestVideoExtension>();
+                // Extension will automatically find the manager and camera
             }
             
-            Initialize();
-        }
-
-        public void Initialize()
-        {
-            if (isInitialized)
+            // Add QuestTouchExtension if touch receiving is enabled
+            if (enableTouchReceiving)
             {
-                LogWarning("Already initialized");
-                return;
+                var touchExtension = bridgeComponents.AddComponent<Extensions.Quest.QuestTouchExtension>();
+                // Extension will automatically find the manager and canvas
             }
-
+            
+            // Add QuestHapticExtension if haptic feedback is enabled
+            if (enableHapticFeedback)
+            {
+                var hapticExtension = bridgeComponents.AddComponent<Extensions.Quest.QuestHapticExtension>();
+                // Extension will automatically find the manager
+            }
+            
+            // Initialize WebRTC connection
+            StartCoroutine(InitializeWebRtcConnection());
+        }
+        
+        private void InitializeMobileComponents()
+        {
+            LogDebug("[UnityVerseBridgeManager] Initializing Mobile components");
+            
+            // Add MobileVideoExtension if video receiving is enabled
+            if (enableVideoReceiving)
+            {
+                var videoExtension = bridgeComponents.AddComponent<Extensions.Mobile.MobileVideoExtension>();
+                // Extension will automatically find the manager and display
+            }
+            
+            // Add MobileInputExtension if touch sending is enabled
+            if (enableTouchSending)
+            {
+                var inputExtension = bridgeComponents.AddComponent<Extensions.Mobile.MobileInputExtension>();
+                // Extension will automatically find the manager
+            }
+            
+            // Add MobileHapticExtension if haptic receiving is enabled
+            if (enableHapticReceiving)
+            {
+                var hapticExtension = bridgeComponents.AddComponent<Extensions.Mobile.MobileHapticExtension>();
+                // Extension will automatically find the manager
+            }
+            
+            // Add MobileConnectionUI if provided and auto-connect is disabled
+            if (connectionUI != null && !enableAutoConnect)
+            {
+                var connectionUIComponent = bridgeComponents.AddComponent<Extensions.Mobile.MobileConnectionUI>();
+                // Extension will automatically find the manager and UI
+            }
+            
+            // Initialize WebRTC connection
+            if (enableAutoConnect)
+            {
+                StartCoroutine(InitializeWebRtcConnection());
+            }
+        }
+        
+        private bool IsVREnabled()
+        {
+            // First check if we have XR Management available
+#if UNITY_XR_MANAGEMENT
+            var xrSettings = UnityEngine.XR.Management.XRGeneralSettings.Instance;
+            if (xrSettings != null && xrSettings.Manager != null && xrSettings.Manager.activeLoader != null)
+            {
+                return true;
+            }
+#endif
+            
+            // Fallback: Check for Quest-specific components using reflection
             try
             {
-                ValidateConfiguration();
-                GenerateClientId();
-                CreateWebRtcManager();
-                CreateFeatureComponents();
-                SetupSignaling();
-                
-                isInitialized = true;
-                OnInitialized?.Invoke();
-                
-                if (autoConnect && connectionConfig != null)
+                // Check for OVRManager
+                var ovrManagerType = System.Type.GetType("OVRManager, Oculus.VR");
+                if (ovrManagerType != null)
                 {
-                    Connect();
+                    var instanceProperty = ovrManagerType.GetProperty("instance", BindingFlags.Public | BindingFlags.Static);
+                    if (instanceProperty != null)
+                    {
+                        var instance = instanceProperty.GetValue(null);
+                        if (instance != null)
+                        {
+                            Debug.Log("[UnityVerseBridgeManager] Detected Quest VR through OVRManager");
+                            return true;
+                        }
+                    }
                 }
                 
-                Log("UnityVerseBridge initialized successfully");
+                // Check for XRSettings.enabled
+                if (UnityEngine.XR.XRSettings.enabled)
+                {
+                    Debug.Log("[UnityVerseBridgeManager] Detected VR through XRSettings");
+                    return true;
+                }
             }
             catch (Exception e)
             {
-                LogError($"Failed to initialize: {e.Message}");
-                OnError?.Invoke(e.Message);
+                Debug.LogWarning($"[UnityVerseBridgeManager] Error checking VR status: {e.Message}");
             }
+            
+            return false;
         }
-
-        private void ValidateConfiguration()
+        
+        // Public methods
+        public void Connect()
         {
-            if (connectionConfig == null)
+            if (!IsConnected)
             {
-                throw new InvalidOperationException("ConnectionConfig is not assigned");
-            }
-            
-            if (string.IsNullOrEmpty(connectionConfig.signalingServerUrl))
-            {
-                throw new InvalidOperationException("Signaling server URL is not configured");
+                StartCoroutine(InitializeWebRtcConnection());
             }
         }
-
-        private void GenerateClientId()
-        {
-            var deviceId = SystemInfo.deviceUniqueIdentifier;
-            var prefix = bridgeMode == BridgeMode.Host ? "host" : "client";
-            clientId = $"{prefix}_{GenerateHashedId(deviceId)}";
-        }
-
-        private string GenerateHashedId(string input)
-        {
-            using (var sha256 = System.Security.Cryptography.SHA256.Create())
-            {
-                byte[] bytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
-                return BitConverter.ToString(bytes).Replace("-", "").Substring(0, 16).ToLower();
-            }
-        }
-
-        private void CreateWebRtcManager()
-        {
-            GameObject managerObject = new GameObject("WebRtcManager_Unified");
-            managerObject.transform.SetParent(transform);
-            
-            // Always use WebRtcManager (it now supports both single and multi-peer modes)
-            var manager = managerObject.AddComponent<WebRtcManager>();
-            manager.SetRole(bridgeMode == BridgeMode.Host);
-            manager.autoStartPeerConnection = false;
-            
-            if (webRtcConfiguration != null)
-            {
-                manager.SetConfiguration(webRtcConfiguration);
-            }
-            
-            // Configure for multi-peer mode if needed
-            if (connectionMode == ConnectionMode.MultiPeer)
-            {
-                int maxConnections = connectionConfig != null ? connectionConfig.maxConnections : 5;
-                manager.SetMultiPeerMode(true, maxConnections);
-            }
-            else
-            {
-                manager.SetMultiPeerMode(false);
-            }
-            
-            webRtcManagerBehaviour = manager;
-            webRtcManager = manager;
-            
-            Log($"Created WebRtcManager in {connectionMode} mode");
-        }
-
-        private void CreateFeatureComponents()
-        {
-            if (enableVideo)
-            {
-                videoHandler = gameObject.AddComponent<VideoStreamHandler>();
-                videoHandler.Initialize(this, webRtcManager, bridgeMode);
-            }
-            
-            if (enableAudio)
-            {
-                audioHandler = gameObject.AddComponent<AudioStreamHandler>();
-                audioHandler.Initialize(this, webRtcManager, bridgeMode);
-            }
-            
-            if (enableTouch)
-            {
-                touchHandler = gameObject.AddComponent<TouchInputHandler>();
-                touchHandler.Initialize(this, webRtcManager, bridgeMode);
-            }
-            
-            if (enableHaptics)
-            {
-                hapticHandler = gameObject.AddComponent<HapticHandler>();
-                hapticHandler.Initialize(this, webRtcManager, bridgeMode);
-            }
-        }
-
-        private void SetupSignaling()
-        {
-            webSocketAdapter = new SystemWebSocketAdapter();
-            signalingClient = new SignalingClient();
-            webRtcManager.SetupSignaling(signalingClient);
-        }
-        #endregion
-
-        #region Connection Management
-        public async void Connect()
-        {
-            if (!isInitialized)
-            {
-                LogError("Not initialized. Call Initialize() first.");
-                return;
-            }
-
-            if (IsConnected)
-            {
-                LogWarning("Already connected");
-                return;
-            }
-
-            try
-            {
-                await ConnectToSignalingServer();
-            }
-            catch (Exception e)
-            {
-                LogError($"Connection failed: {e.Message}");
-                OnError?.Invoke(e.Message);
-            }
-        }
-
-        private async Task ConnectToSignalingServer()
-        {
-            string serverUrl = connectionConfig.signalingServerUrl;
-            
-            // Authentication if required
-            if (connectionConfig.requireAuthentication)
-            {
-                Log("Authenticating...");
-                bool authSuccess = await AuthenticationHelper.AuthenticateAsync(
-                    serverUrl,
-                    clientId,
-                    bridgeMode == BridgeMode.Host ? "host" : "client",
-                    connectionConfig.authKey
-                );
-                
-                if (!authSuccess)
-                {
-                    throw new Exception("Authentication failed");
-                }
-                
-                serverUrl = AuthenticationHelper.AppendTokenToUrl(serverUrl);
-            }
-            
-            await signalingClient.InitializeAndConnect(webSocketAdapter, serverUrl);
-            Log("Connected to signaling server");
-            
-            // Register client
-            await RegisterClient();
-            
-            // Subscribe to signaling events
-            signalingClient.OnSignalingMessageReceived += HandleSignalingMessage;
-            
-            // Additional setup for concrete WebRtcManager
-            if (webRtcManagerBehaviour is WebRtcManager concreteManager && bridgeMode == BridgeMode.Host)
-            {
-                concreteManager.CreatePeerConnection();
-                concreteManager.CreateDataChannel();
-            }
-            
-            OnConnected?.Invoke();
-        }
-
-        private async Task RegisterClient()
-        {
-            var registerMessage = new RegisterMessage
-            {
-                peerId = clientId,
-                clientType = bridgeMode == BridgeMode.Host ? "host" : "client",
-                roomId = connectionConfig.GetRoomId()
-            };
-            
-            await signalingClient.SendMessage(registerMessage);
-            Log($"Registered as {bridgeMode} with room ID: {connectionConfig.GetRoomId()}");
-            
-            // For multi-peer mode, the WebRtcManager will handle room joining automatically
-            // For single-peer mode, we'll start peer connection when a peer joins
-        }
-
+        
         public void Disconnect()
         {
-            if (signalingClient != null)
+            if (webRtcManager != null)
             {
-                signalingClient.OnSignalingMessageReceived -= HandleSignalingMessage;
-            }
-            
-            webRtcManager?.Disconnect();
-            webSocketAdapter = null;
-            signalingClient = null;
-            
-            OnDisconnected?.Invoke();
-        }
-        #endregion
-
-        #region Event Handlers
-        private void HandleSignalingMessage(string type, string jsonData)
-        {
-            // Handle based on bridge mode
-            if (bridgeMode == BridgeMode.Host)
-            {
-                HandleHostSignalingMessage(type, jsonData);
-            }
-            else
-            {
-                HandleClientSignalingMessage(type, jsonData);
+                webRtcManager.Disconnect();
             }
         }
-
-        private void HandleHostSignalingMessage(string type, string jsonData)
+        
+        public void SetRoomId(string roomId)
         {
-            if (type == "peer-joined")
+            if (configuration != null)
             {
-                var peerInfo = JsonUtility.FromJson<PeerJoinedMessage>(jsonData);
-                if (peerInfo.role == "client" || peerInfo.role == "mobile")
+                configuration.roomId = roomId;
+                // If using session room ID, reset it to use the new room ID
+                if (configuration.useSessionRoomId)
                 {
-                    Log($"Client joined: {peerInfo.peerId}");
+                    configuration.ResetSessionRoomId();
+                }
+                LogDebug($"[UnityVerseBridgeManager] Room ID set to: {roomId}");
+            }
+        }
+        
+        // Properties
+        public bool IsConnected => webRtcManager != null && webRtcManager.IsWebRtcConnected;
+        public WebRtcManager WebRtcManager => webRtcManager;
+        
+        // WebRTC Connection initialization coroutine
+        private System.Collections.IEnumerator InitializeWebRtcConnection()
+        {
+            yield return new WaitForSeconds(0.5f); // Wait for components to initialize
+            
+            if (webRtcManager != null && configuration != null)
+            {
+                LogDebug("[UnityVerseBridgeManager] Starting WebRTC connection...");
+                
+                // Create signaling client based on platform
+                ISignalingClient signalingClient = null;
+                
+#if UNITY_WEBGL && !UNITY_EDITOR
+                // WebGL would use a different adapter
+                LogDebug("[UnityVerseBridgeManager] WebGL platform not supported yet");
+                yield break;
+#else
+                // Use SystemWebSocketAdapter for most platforms
+                var adapter = new Signaling.Adapters.SystemWebSocketAdapter();
+                signalingClient = new SignalingClient();
+#endif
+                
+                if (signalingClient != null)
+                {
+                    webRtcManager.SetupSignaling(signalingClient);
                     
-                    // Trigger negotiation for single peer mode
-                    if (webRtcManagerBehaviour is WebRtcManager manager)
+                    // Determine client type first
+                    string clientType = IsQuestPlatform ? "quest" : "mobile";
+                    
+                    // Connect to signaling server
+                    // Add query parameters for better debugging
+                    string serverUrl = configuration.signalingServerUrl;
+                    if (!serverUrl.Contains("?"))
                     {
-                        StartCoroutine(TriggerNegotiationAfterDelay(manager));
+                        serverUrl += "?";
+                    }
+                    else
+                    {
+                        serverUrl += "&";
+                    }
+                    serverUrl += $"clientType={clientType}&roomId={configuration.GetRoomId()}";
+                    
+                    LogDebug($"[UnityVerseBridgeManager] Connecting to: {serverUrl}");
+                    var connectTask = signalingClient.InitializeAndConnect(adapter, serverUrl);
+                    yield return new WaitUntil(() => connectTask.IsCompleted);
+                    
+                    if (connectTask.Exception != null)
+                    {
+                        Debug.LogError($"[UnityVerseBridgeManager] Failed to connect: {connectTask.Exception}");
+                        yield break;
+                    }
+                    
+                    // Register client
+                    string peerId = $"{clientType}_{System.Guid.NewGuid().ToString().Substring(0, 16)}";
+                    
+                    // Get room ID
+                    string roomId = configuration.GetRoomId();
+                    if (string.IsNullOrEmpty(roomId))
+                    {
+                        Debug.LogError("[UnityVerseBridgeManager] Room ID is empty! Using default.");
+                        roomId = "default-room";
+                    }
+                    
+                    var registerMessage = new Signaling.Messages.RegisterMessage
+                    {
+                        peerId = peerId,
+                        clientType = clientType,
+                        roomId = roomId
+                    };
+                    
+                    LogDebug($"[UnityVerseBridgeManager] Sending register message: peerId={peerId}, clientType={clientType}, roomId={roomId}");
+                    signalingClient.SendMessage(registerMessage);
+                    LogDebug($"[UnityVerseBridgeManager] Register message sent successfully");
+                    
+                    // For Quest (Offerer), create peer connection immediately
+                    if (IsQuestPlatform)
+                    {
+                        yield return new WaitForSeconds(0.5f);
+                        webRtcManager.StartPeerConnection();
                     }
                 }
             }
         }
-
-        private void HandleClientSignalingMessage(string type, string jsonData)
+        
+        // Debug logging helper
+        private void LogDebug(string message)
         {
-            if (type == "host-disconnected")
+            if (enableDebugLogging)
             {
-                LogWarning("Host disconnected from room");
-                // Could trigger reconnection here
+                Debug.Log(message);
             }
         }
-
-        private IEnumerator TriggerNegotiationAfterDelay(WebRtcManager manager)
+        
+        // Helper methods for reflection
+        private Type GetTypeByName(string typeName, string namespaceName)
         {
-            yield return new WaitForSeconds(1.0f);
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var type = assembly.GetType($"{namespaceName}.{typeName}");
+                if (type != null) return type;
+            }
+            Debug.LogWarning($"[UnityVerseBridgeManager] Type {namespaceName}.{typeName} not found. Make sure the required packages are imported.");
+            return null;
+        }
+        
+        private void SetFieldValue(Component component, string fieldName, object value)
+        {
+            if (component == null) return;
             
-            if (!manager.IsNegotiating && manager.GetPeerConnectionState() != RTCPeerConnectionState.Closed)
+            var field = component.GetType().GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (field != null)
             {
-                manager.StartNegotiation();
+                field.SetValue(component, value);
+            }
+            else
+            {
+                var property = component.GetType().GetProperty(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (property != null && property.CanWrite)
+                {
+                    property.SetValue(component, value);
+                }
             }
         }
-        #endregion
-
-        #region Update Loop
-        void Update()
-        {
-            webSocketAdapter?.DispatchMessageQueue();
-            signalingClient?.DispatchMessages();
-        }
-        #endregion
-
-        #region Cleanup
-        private void CleanupComponents()
-        {
-            if (videoHandler != null) Destroy(videoHandler);
-            if (audioHandler != null) Destroy(audioHandler);
-            if (touchHandler != null) Destroy(touchHandler);
-            if (hapticHandler != null) Destroy(hapticHandler);
-            
-            if (webRtcManagerBehaviour != null)
-            {
-                Destroy(webRtcManagerBehaviour.gameObject);
-            }
-        }
-        #endregion
-
-        #region Logging
-        private void Log(string message)
-        {
-            if (debugMode)
-                Debug.Log($"[UnityVerseBridge] {message}");
-        }
-
-        private void LogWarning(string message)
-        {
-            Debug.LogWarning($"[UnityVerseBridge] {message}");
-        }
-
-        private void LogError(string message)
-        {
-            Debug.LogError($"[UnityVerseBridge] {message}");
-        }
-        #endregion
-
-        #region Public API
-        /// <summary>
-        /// 비디오 트랙 추가 (Host 모드에서 사용)
-        /// </summary>
-        public void AddVideoTrack(VideoStreamTrack track)
-        {
-            if (bridgeMode != BridgeMode.Host)
-            {
-                LogWarning("AddVideoTrack is only available in Host mode");
-                return;
-            }
-            
-            webRtcManager?.AddVideoTrack(track);
-        }
-
-        /// <summary>
-        /// 오디오 트랙 추가 (Host 모드에서 사용)
-        /// </summary>
-        public void AddAudioTrack(AudioStreamTrack track)
-        {
-            webRtcManager?.AddAudioTrack(track);
-        }
-
-        /// <summary>
-        /// 데이터 채널 메시지 전송
-        /// </summary>
-        public void SendDataChannelMessage(object messageData)
-        {
-            webRtcManager?.SendDataChannelMessage(messageData);
-        }
-
-        /// <summary>
-        /// 터치 데이터 전송 (Client 모드에서 사용)
-        /// </summary>
-        public void SendTouchData(TouchData touchData)
-        {
-            if (bridgeMode != BridgeMode.Client)
-            {
-                LogWarning("SendTouchData is only available in Client mode");
-                return;
-            }
-            
-            SendDataChannelMessage(touchData);
-        }
-
-        /// <summary>
-        /// 햅틱 명령 전송 (Host 모드에서 사용)
-        /// </summary>
-        public void SendHapticCommand(HapticCommand command)
-        {
-            if (bridgeMode != BridgeMode.Host)
-            {
-                LogWarning("SendHapticCommand is only available in Host mode");
-                return;
-            }
-            
-            SendDataChannelMessage(command);
-        }
-        #endregion
     }
 }
