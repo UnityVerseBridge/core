@@ -50,15 +50,29 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 return;
             }
             
+            // Wait for initialization
+            StartCoroutine(WaitForInitialization());
+        }
+
+        private IEnumerator WaitForInitialization()
+        {
+            // Wait for UnityVerseBridgeManager to be initialized
+            while (!bridgeManager.IsInitialized)
+            {
+                yield return null;
+            }
+            
+            // Get WebRtcManager
             webRtcManager = bridgeManager.WebRtcManager;
             if (webRtcManager == null)
             {
-                Debug.LogError("[QuestHapticExtension] WebRtcManager not found!");
+                Debug.LogError("[QuestHapticExtension] WebRtcManager not found after initialization!");
                 enabled = false;
-                return;
+                yield break;
             }
             
             isInitialized = true;
+            Debug.Log("[QuestHapticExtension] Initialized");
         }
 
         void Update()

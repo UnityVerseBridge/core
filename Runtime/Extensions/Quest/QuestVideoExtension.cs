@@ -70,13 +70,8 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 return;
             }
             
-            webRtcManager = bridgeManager.WebRtcManager;
-            if (webRtcManager == null)
-            {
-                Debug.LogError("[QuestVideoExtension] WebRtcManager not found!");
-                enabled = false;
-                return;
-            }
+            // Wait for initialization
+            StartCoroutine(WaitForInitialization());
 
             // Find Quest camera if not assigned
             if (streamCamera == null)
@@ -105,6 +100,24 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
             SetupRenderTexture();
             SetupPassthrough();
+        }
+
+        private System.Collections.IEnumerator WaitForInitialization()
+        {
+            // Wait for UnityVerseBridgeManager to be initialized
+            while (!bridgeManager.IsInitialized)
+            {
+                yield return null;
+            }
+            
+            // Get WebRtcManager
+            webRtcManager = bridgeManager.WebRtcManager;
+            if (webRtcManager == null)
+            {
+                Debug.LogError("[QuestVideoExtension] WebRtcManager not found after initialization!");
+                enabled = false;
+                yield break;
+            }
             
             // Subscribe to events
             webRtcManager.OnSignalingConnected += StartStreaming;

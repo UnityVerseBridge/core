@@ -82,13 +82,8 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 return;
             }
             
-            webRtcManager = bridgeManager.WebRtcManager;
-            if (webRtcManager == null)
-            {
-                Debug.LogError("[QuestTouchExtension] WebRtcManager not found!");
-                enabled = false;
-                return;
-            }
+            // Wait for initialization
+            StartCoroutine(WaitForInitialization());
 
             // Setup canvas
             if (createDefaultCanvas && touchCanvas == null)
@@ -116,6 +111,24 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             if (touchPointerPrefab == null)
             {
                 CreateDefaultPointerPrefab();
+            }
+        }
+
+        private System.Collections.IEnumerator WaitForInitialization()
+        {
+            // Wait for UnityVerseBridgeManager to be initialized
+            while (!bridgeManager.IsInitialized)
+            {
+                yield return null;
+            }
+            
+            // Get WebRtcManager
+            webRtcManager = bridgeManager.WebRtcManager;
+            if (webRtcManager == null)
+            {
+                Debug.LogError("[QuestTouchExtension] WebRtcManager not found after initialization!");
+                enabled = false;
+                yield break;
             }
 
             // Subscribe to events

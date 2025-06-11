@@ -16,7 +16,7 @@ namespace UnityVerseBridge.Core
     /// Host(Quest VR) 또는 Client(Mobile) 모드로 동작할 수 있습니다.
     /// </summary>
     [DisallowMultipleComponent]
-    [DefaultExecutionOrder(-100)] // 다른 컴포넌트보다 먼저 실행
+    [DefaultExecutionOrder(-1000)] // 다른 컴포넌트보다 먼저 실행
     public class UnityVerseBridgeManager : MonoBehaviour
     {
         #region Enums
@@ -332,8 +332,7 @@ namespace UnityVerseBridge.Core
                 roomId = connectionConfig.GetRoomId()
             };
             
-            string jsonMessage = JsonUtility.ToJson(registerMessage);
-            await webSocketAdapter.SendText(jsonMessage);
+            await signalingClient.SendMessage(registerMessage);
             Log($"Registered as {bridgeMode} with room ID: {connectionConfig.GetRoomId()}");
             
             // For multi-peer mode, the WebRtcManager will handle room joining automatically
