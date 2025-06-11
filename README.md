@@ -86,6 +86,18 @@ Runtime/
 │   └── Data/                 # 데이터 구조체
 └── Utils/
     └── UnityMainThreadDispatcher.cs
+├── Extensions/               # 플랫폼별 확장 컴포넌트
+│   ├── Quest/               # Quest 전용 확장
+│   │   ├── QuestHapticExtension.cs
+│   │   ├── QuestVideoExtension.cs
+│   │   └── QuestTouchExtension.cs
+│   └── Mobile/              # Mobile 전용 확장
+│       ├── MobileHapticExtension.cs
+│       ├── MobileVideoExtension.cs
+│       ├── MobileInputExtension.cs
+│       └── MobileConnectionUI.cs
+Editor/
+└── UnityVerseBridgePrefabCreator.cs # 프리팹 자동 생성 도구
 ```
 
 ## 💡 핵심 컴포넌트 설명
@@ -166,6 +178,21 @@ UnityVerseBridgeManager가 자동으로 관리하는 기능별 핸들러들입�
 - **SystemWebSocketAdapter**: Quest, Unity Editor에서 사용
 - **NativeWebSocketAdapter**: iOS, Android에서 사용
 
+### 플랫폼별 확장 컴포넌트 (Extensions)
+
+기본 핸들러를 보완하는 플랫폼 특화 기능을 제공합니다.
+
+#### Quest Extensions
+- **QuestVideoExtension**: MR/패스스루 캡처, 적응형 해상도
+- **QuestTouchExtension**: 멀티 터치 시각화, 피어별 색상 구분
+- **QuestHapticExtension**: Oculus Touch 컨트롤러 햅틱
+
+#### Mobile Extensions  
+- **MobileVideoExtension**: 비디오 수신 및 표시, 화면 비율 조정
+- **MobileInputExtension**: 터치 입력 전송, 터치 영역 제한
+- **MobileHapticExtension**: iOS/Android 진동 피드백
+- **MobileConnectionUI**: 연결 관리 UI 컴포넌트
+
 ## 🔄 데이터 흐름
 
 ```
@@ -188,41 +215,58 @@ Quest App (Offerer)                    Mobile App (Answerer)
 
 ## 🎮 사용 방법
 
-### 1. ConnectionConfig 생성
-Unity Editor에서 ScriptableObject 생성:
-1. Project 창에서 우클릭
-2. Create > UnityVerseBridge > Connection Config
-3. 설정값 입력:
-   - Signaling Server URL
-   - Room ID
-   - Client Type (Quest/Mobile)
-   - Auto Connect 옵션
+### 1. 프리팹 자동 생성 (권장)
+Unity Editor 메뉴에서 바로 프리팹을 생성할 수 있습니다:
 
-### 2. 프리팹 사용 (권장)
+#### Quest Host 프리팹
+```
+UnityVerseBridge > Create Prefabs > Quest Host Prefab
+```
+
+#### Mobile Client 프리팹
+```
+UnityVerseBridge > Create Prefabs > Mobile Client Prefab
+```
+
+#### 양쪽 프리팹 동시 생성
+```
+UnityVerseBridge > Create Prefabs > Create Both Prefabs
+```
+
+생성된 프리팹에는 필요한 모든 컴포넌트와 UI가 자동으로 구성됩니다.
+
+### 2. ConnectionConfig 설정
+생성된 프리팹의 ConnectionConfig를 프로젝트에 맞게 수정:
+- **Signaling Server URL**: 시그널링 서버 주소
+- **Room ID**: 매칭에 사용할 룸 ID
+- **Client Type**: Quest(Host) 또는 Mobile(Client)
+- **Auto Connect**: 자동 연결 여부
+
+### 3. 프리팹 사용
 ```csharp
 public class AppInitializer : MonoBehaviour
 {
-    [SerializeField] private GameObject unityVerseBridgePrefab;
-    [SerializeField] private ConnectionConfig connectionConfig;
-    
     void Start()
     {
         // WebRTC.Update() 코루틴 필수
         StartCoroutine(WebRTC.Update());
         
-        // 프리팹 인스턴스화
-        GameObject bridge = Instantiate(unityVerseBridgePrefab);
+        // Quest용
+        #if UNITY_ANDROID && QUEST_SUPPORT
+        GameObject questPrefab = Resources.Load<GameObject>("Prefabs/UnityVerseBridge_Quest");
+        Instantiate(questPrefab);
+        #endif
         
-        // ConnectionConfig 설정
-        var manager = bridge.GetComponent<UnityVerseBridgeManager>();
-        manager.connectionConfig = connectionConfig;
-        
-        // 자동으로 연결 시작됨
+        // Mobile용
+        #if (UNITY_IOS || UNITY_ANDROID) && !QUEST_SUPPORT
+        GameObject mobilePrefab = Resources.Load<GameObject>("Prefabs/UnityVerseBridge_Mobile");
+        Instantiate(mobilePrefab);
+        #endif
     }
 }
 ```
 
-### 3. 수동 설정 (고급)
+### 4. 수동 설정 (고급)
 ```csharp
 public class ManualSetup : MonoBehaviour
 {
@@ -275,6 +319,10 @@ public class ManualSetup : MonoBehaviour
 - ✅ 프리팹을 통한 간편한 설정
 - ✅ WebRtcManager에 1:1 및 1:N 연결 통합
 - ✅ 플랫폼 독립적인 핸들러 시스템
+- ✅ 플랫폼별 확장 컴포넌트 (Extensions)
+- ✅ 자동 프리팹 생성 도구
+- ✅ 모바일 연결 UI 컴포넌트
+- ✅ Quest MR/패스스루 지원
 
 ## 🚧 향후 개발 계획
 
