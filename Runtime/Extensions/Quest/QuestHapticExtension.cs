@@ -43,13 +43,6 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Start()
         {
-            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
-            {
-                Debug.LogWarning("[QuestHapticExtension] This component only works in Host mode. Disabling...");
-                enabled = false;
-                return;
-            }
-            
             // Wait for initialization
             StartCoroutine(WaitForInitialization());
         }
@@ -60,6 +53,14 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             while (!bridgeManager.IsInitialized)
             {
                 yield return null;
+            }
+            
+            // Check mode after initialization
+            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
+            {
+                Debug.LogWarning("[QuestHapticExtension] This component only works in Host mode. Disabling...");
+                enabled = false;
+                yield break;
             }
             
             // Get WebRtcManager

@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.EnhancedTouch;
 using UnityVerseBridge.Core.DataChannel.Data;
+using System.Collections;
 using Touch = UnityEngine.InputSystem.EnhancedTouch.Touch;
 using TouchPhase = UnityVerseBridge.Core.DataChannel.Data.TouchPhase;
 
@@ -22,6 +23,10 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
         [Header("Touch Area")]
         [SerializeField] private RectTransform touchArea; // 터치 영역 제한 (optional)
         [SerializeField] private bool normalizeToTouchArea = true;
+        
+        [Header("Touch Feedback")]
+        [SerializeField] private Transform touchFeedbackParent; // 터치 피드백 UI 부모 오브젝트
+        [SerializeField] private GameObject touchFeedbackPrefab; // 터치 피드백 프리팩 (optional)
         
         [Header("Debug")]
         [SerializeField] private bool debugMode = false;
@@ -53,11 +58,23 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Start()
         {
+            StartCoroutine(WaitForInitialization());
+        }
+
+        private IEnumerator WaitForInitialization()
+        {
+            // Wait for UnityVerseBridgeManager to be initialized
+            while (!bridgeManager.IsInitialized)
+            {
+                yield return null;
+            }
+
+            // Check mode after initialization
             if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Client)
             {
                 Debug.LogWarning("[MobileInputExtension] This component only works in Client mode. Disabling...");
                 enabled = false;
-                return;
+                yield break;
             }
             
             webRtcManager = bridgeManager.WebRtcManager;
@@ -65,7 +82,20 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             {
                 Debug.LogError("[MobileInputExtension] WebRtcManager not found!");
                 enabled = false;
-                return;
+                yield break;
+            }
+            
+            // Use references from UnityVerseBridgeManager if available
+            if (touchArea == null && bridgeManager.MobileTouchArea != null)
+            {
+                touchArea = bridgeManager.MobileTouchArea;
+                Debug.Log("[MobileInputExtension] Using Touch Area from UnityVerseBridgeManager");
+            }
+            
+            if (touchFeedbackParent == null && bridgeManager.MobileTouchFeedbackLayer != null)
+            {
+                touchFeedbackParent = bridgeManager.MobileTouchFeedbackLayer.transform;
+                Debug.Log("[MobileInputExtension] Using Touch Feedback Layer from UnityVerseBridgeManager");
             }
 
             // UI Camera 찾기
@@ -221,27 +251,52 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
         {
             touchVisualizers = new GameObject[maxTouchCount];
             
-            // Create a canvas for touch visualization
-            GameObject canvasGO = new GameObject("TouchVisualizerCanvas");
-            Canvas canvas = canvasGO.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 999; // On top of everything
-            canvasGO.AddComponent<UnityEngine.UI.CanvasScaler>();
-            canvasGO.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+            Transform parent = touchFeedbackParent;
+            
+            // If no parent specified, create a canvas for touch visualization
+            if (parent == null)
+            {
+                GameObject canvasGO = new GameObject("TouchVisualizerCanvas");
+                Canvas canvas = canvasGO.AddComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 999; // On top of everything
+                canvasGO.AddComponent<UnityEngine.UI.CanvasScaler>();
+                canvasGO.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+                parent = canvas.transform;
+            }
+            
+            // Check if we have a touch feedback prefab
+            GameObject prefabToUse = touchFeedbackPrefab;
+            if (prefabToUse == null)
+            {
+                // Create default touch visualizer if no prefab provided
+                prefabToUse = new GameObject("TouchVisualizerTemplate");
+                var image = prefabToUse.AddComponent<UnityEngine.UI.Image>();
+                image.sprite = CreateCircleSprite();
+                image.raycastTarget = false;
+                var rect = prefabToUse.GetComponent<RectTransform>();
+                rect.sizeDelta = new Vector2(100, 100);
+            }
             
             for (int i = 0; i < maxTouchCount; i++)
             {
-                GameObject visualizer = new GameObject($"TouchVisualizer_{i}");
-                visualizer.transform.SetParent(canvas.transform, false);
+                GameObject visualizer = Instantiate(prefabToUse, parent);
+                visualizer.name = $"TouchVisualizer_{i}";
                 
-                var image = visualizer.AddComponent<UnityEngine.UI.Image>();
-                image.sprite = CreateCircleSprite();
-                image.color = touchColors[i % touchColors.Length];
-                image.rectTransform.sizeDelta = new Vector2(100, 100);
-                image.raycastTarget = false;
+                var image = visualizer.GetComponent<UnityEngine.UI.Image>();
+                if (image != null)
+                {
+                    image.color = touchColors[i % touchColors.Length];
+                }
                 
                 visualizer.SetActive(false);
                 touchVisualizers[i] = visualizer;
+            }
+            
+            // Clean up temporary prefab if we created it
+            if (touchFeedbackPrefab == null && prefabToUse != null)
+            {
+                Destroy(prefabToUse);
             }
         }
 

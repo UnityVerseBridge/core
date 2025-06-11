@@ -52,11 +52,23 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Start()
         {
+            StartCoroutine(WaitForInitialization());
+        }
+
+        private IEnumerator WaitForInitialization()
+        {
+            // Wait for UnityVerseBridgeManager to be initialized
+            while (!bridgeManager.IsInitialized)
+            {
+                yield return null;
+            }
+
+            // Check mode after initialization
             if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Client)
             {
                 Debug.LogWarning("[MobileVideoExtension] This component only works in Client mode. Disabling...");
                 enabled = false;
-                return;
+                yield break;
             }
             
             webRtcManager = bridgeManager.WebRtcManager;
@@ -64,14 +76,21 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             {
                 Debug.LogError("[MobileVideoExtension] WebRtcManager not found!");
                 enabled = false;
-                return;
+                yield break;
             }
 
+            // Use display image from UnityVerseBridgeManager if available
+            if (displayImage == null && bridgeManager.MobileVideoDisplay != null)
+            {
+                displayImage = bridgeManager.MobileVideoDisplay;
+                Debug.Log("[MobileVideoExtension] Using Video Display from UnityVerseBridgeManager");
+            }
+            
             if (displayImage == null)
             {
                 Debug.LogError("[MobileVideoExtension] Display RawImage not assigned!");
                 enabled = false;
-                return;
+                yield break;
             }
 
             // Aspect Ratio Fitter 설정

@@ -63,17 +63,17 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Start()
         {
-            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
-            {
-                Debug.LogWarning("[QuestVideoExtension] This component only works in Host mode. Disabling...");
-                enabled = false;
-                return;
-            }
-            
-            // Wait for initialization
+            // Wait for initialization - check mode after initialization
             StartCoroutine(WaitForInitialization());
 
-            // Find Quest camera if not assigned
+            // Use camera from UnityVerseBridgeManager if available
+            if (streamCamera == null && bridgeManager.QuestStreamCamera != null)
+            {
+                streamCamera = bridgeManager.QuestStreamCamera;
+                Debug.Log("[QuestVideoExtension] Using camera from UnityVerseBridgeManager");
+            }
+            
+            // Find Quest camera if still not assigned
             if (streamCamera == null)
             {
 #if UNITY_ANDROID && QUEST_SUPPORT
@@ -97,6 +97,14 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 enabled = false;
                 return;
             }
+            
+            // Use RenderTexture from UnityVerseBridgeManager if available
+            if (renderTexture == null && bridgeManager.QuestStreamTexture != null)
+            {
+                renderTexture = bridgeManager.QuestStreamTexture;
+                autoCreateRenderTexture = false; // Don't auto-create if provided
+                Debug.Log("[QuestVideoExtension] Using RenderTexture from UnityVerseBridgeManager");
+            }
 
             SetupRenderTexture();
             SetupPassthrough();
@@ -108,6 +116,14 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             while (!bridgeManager.IsInitialized)
             {
                 yield return null;
+            }
+            
+            // Check mode after initialization
+            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
+            {
+                Debug.LogWarning("[QuestVideoExtension] This component only works in Host mode. Disabling...");
+                enabled = false;
+                yield break;
             }
             
             // Get WebRtcManager
@@ -151,7 +167,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         {
             if (autoCreateRenderTexture && renderTexture == null)
             {
-                renderTexture = new RenderTexture(streamResolution.x, streamResolution.y, 24, RenderTextureFormat.BGRA32, RenderTextureReadWrite.sRGB);
+                renderTexture = new RenderTexture(streamResolution.x, streamResolution.y, 24, RenderTextureFormat.BGRA32);
                 renderTexture.name = "QuestStreamTexture";
                 renderTexture.Create();
                 Debug.Log($"[QuestVideoExtension] Created RenderTexture: {streamResolution.x}x{streamResolution.y}");
@@ -307,7 +323,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 Debug.Log($"[QuestVideoExtension] Adjusting resolution: {newResolution.x}x{newResolution.y} for {currentPeerCount} peers");
                 
                 var oldTexture = renderTexture;
-                renderTexture = new RenderTexture(newResolution.x, newResolution.y, 24, RenderTextureFormat.BGRA32, RenderTextureReadWrite.sRGB);
+                renderTexture = new RenderTexture(newResolution.x, newResolution.y, 24, RenderTextureFormat.BGRA32);
                 renderTexture.Create();
                 
                 // Note: In production, you'd need to handle video track recreation

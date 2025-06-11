@@ -75,16 +75,17 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Start()
         {
-            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
-            {
-                Debug.LogWarning("[QuestTouchExtension] This component only works in Host mode. Disabling...");
-                enabled = false;
-                return;
-            }
-            
             // Wait for initialization
             StartCoroutine(WaitForInitialization());
 
+            // Use canvas from UnityVerseBridgeManager if available
+            if (touchCanvas == null && bridgeManager.QuestTouchCanvas != null)
+            {
+                touchCanvas = bridgeManager.QuestTouchCanvas;
+                createDefaultCanvas = false; // Don't create if provided
+                Debug.Log("[QuestTouchExtension] Using Touch Canvas from UnityVerseBridgeManager");
+            }
+            
             // Setup canvas
             if (createDefaultCanvas && touchCanvas == null)
             {
@@ -120,6 +121,14 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             while (!bridgeManager.IsInitialized)
             {
                 yield return null;
+            }
+            
+            // Check mode after initialization
+            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
+            {
+                Debug.LogWarning("[QuestTouchExtension] This component only works in Host mode. Disabling...");
+                enabled = false;
+                yield break;
             }
             
             // Get WebRtcManager

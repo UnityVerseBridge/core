@@ -38,12 +38,31 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Start()
         {
+            StartCoroutine(WaitForInitialization());
+        }
+
+        private IEnumerator WaitForInitialization()
+        {
+            // Wait for UnityVerseBridgeManager to be initialized
+            while (!bridgeManager.IsInitialized)
+            {
+                yield return null;
+            }
+
+            // Check mode after initialization
+            if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Client)
+            {
+                Debug.LogWarning("[MobileConnectionUI] This component only works in Client mode. Disabling...");
+                enabled = false;
+                yield break;
+            }
+
             webRtcManager = bridgeManager.WebRtcManager;
             if (webRtcManager == null)
             {
                 Debug.LogError("[MobileConnectionUI] WebRtcManager not found!");
                 enabled = false;
-                return;
+                yield break;
             }
 
             // Setup UI
