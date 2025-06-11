@@ -13,6 +13,18 @@ namespace UnityVerseBridge.Core
     [AddComponentMenu("UnityVerseBridge/UnityVerseBridge Manager")]
     public class UnityVerseBridgeManager : MonoBehaviour
     {
+#if UNITY_EDITOR
+        [ContextMenu("Remove This Bridge Instance")]
+        private void RemoveThisBridge()
+        {
+            if (UnityEditor.EditorUtility.DisplayDialog("Remove UnityVerseBridge", 
+                "Remove this UnityVerseBridge instance and its children?", 
+                "Yes", "No"))
+            {
+                UnityEditor.Undo.DestroyObjectImmediate(gameObject);
+            }
+        }
+#endif
         /// <summary>
         /// Bridge operation mode
         /// </summary>

@@ -6,6 +6,65 @@ namespace UnityVerseBridge.Core.Editor
 {
     public static class UnityVerseBridgePrefabCreator
     {
+        // Cleanup menu items
+        [MenuItem("UnityVerseBridge/Cleanup/Remove All UnityVerseBridge Components", false, 100)]
+        public static void CleanupAll()
+        {
+            if (EditorUtility.DisplayDialog("Remove UnityVerseBridge", 
+                "This will remove all UnityVerseBridge prefabs, instances, and related assets.\n\nAre you sure?", 
+                "Yes, Remove All", "Cancel"))
+            {
+                CleanupUnityVerseBridge();
+            }
+        }
+        
+        [MenuItem("UnityVerseBridge/Cleanup/Remove Quest Components Only", false, 101)]
+        public static void CleanupQuestOnly()
+        {
+            if (EditorUtility.DisplayDialog("Remove Quest Components", 
+                "This will remove Quest-specific UnityVerseBridge components and assets.\n\nAre you sure?", 
+                "Yes, Remove Quest", "Cancel"))
+            {
+                CleanupUnityVerseBridge("Quest");
+            }
+        }
+        
+        [MenuItem("UnityVerseBridge/Cleanup/Remove Mobile Components Only", false, 102)]
+        public static void CleanupMobileOnly()
+        {
+            if (EditorUtility.DisplayDialog("Remove Mobile Components", 
+                "This will remove Mobile-specific UnityVerseBridge components and assets.\n\nAre you sure?", 
+                "Yes, Remove Mobile", "Cancel"))
+            {
+                CleanupUnityVerseBridge("Mobile");
+            }
+        }
+        
+        [MenuItem("UnityVerseBridge/Cleanup/Remove Config Assets Only", false, 110)]
+        public static void CleanupConfigsOnly()
+        {
+            if (EditorUtility.DisplayDialog("Remove Config Assets", 
+                "This will remove all ConnectionConfig and WebRtcConfiguration assets.\n\nAre you sure?", 
+                "Yes, Remove Configs", "Cancel"))
+            {
+                CleanupConfigAssets();
+            }
+        }
+        
+        [MenuItem("UnityVerseBridge/Cleanup/Remove Scene Instances Only", false, 111)]
+        public static void CleanupSceneOnly()
+        {
+            if (EditorUtility.DisplayDialog("Remove Scene Instances", 
+                "This will remove all UnityVerseBridge instances from the current scene.\n\nAre you sure?", 
+                "Yes, Remove Instances", "Cancel"))
+            {
+                CleanupSceneInstances();
+            }
+        }
+        // Add separator
+        [MenuItem("UnityVerseBridge/—————————————", false, 50)]
+        private static void Separator() {}
+        
         [MenuItem("UnityVerseBridge/Create Quest Bridge Prefab", false, 11)]
         public static void CreateQuestBridgePrefab()
         {
@@ -303,6 +362,211 @@ namespace UnityVerseBridge.Core.Editor
             AssetDatabase.SaveAssets();
             
             return config;
+        }
+        
+        private static void CleanupUnityVerseBridge(string platform = null)
+        {
+            int removedCount = 0;
+            
+            try
+            {
+                // 1. Remove instances from Hierarchy
+                var instances = GameObject.FindObjectsByType<UnityVerseBridgeManager>(FindObjectsSortMode.None);
+                foreach (var instance in instances)
+                {
+                    if (platform == null || instance.gameObject.name.Contains(platform))
+                    {
+                        string name = instance.gameObject.name;
+                        Undo.DestroyObjectImmediate(instance.gameObject);
+                        Debug.Log($"[UnityVerseBridge] Removed instance: {name}");
+                        removedCount++;
+                    }
+                }
+                
+                // 2. Remove prefabs from project
+                string[] prefabGuids = AssetDatabase.FindAssets("t:Prefab", new[] { "Assets" });
+                foreach (string guid in prefabGuids)
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (path.Contains("UnityVerseBridge") && (platform == null || path.Contains(platform)))
+                    {
+                        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                        if (prefab != null && prefab.GetComponent<UnityVerseBridgeManager>() != null)
+                        {
+                            AssetDatabase.DeleteAsset(path);
+                            Debug.Log($"[UnityVerseBridge] Deleted prefab: {path}");
+                            removedCount++;
+                        }
+                    }
+                }
+                
+                // 3. Remove ConnectionConfig assets
+                string[] configGuids = AssetDatabase.FindAssets("t:ConnectionConfig", new[] { "Assets" });
+                foreach (string guid in configGuids)
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (platform == null || path.Contains(platform))
+                    {
+                        AssetDatabase.DeleteAsset(path);
+                        Debug.Log($"[UnityVerseBridge] Deleted config: {path}");
+                        removedCount++;
+                    }
+                }
+                
+                // 4. Remove WebRtcConfiguration assets
+                string[] webRtcConfigGuids = AssetDatabase.FindAssets("t:WebRtcConfiguration", new[] { "Assets" });
+                foreach (string guid in webRtcConfigGuids)
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    if ((path.Contains("UnityVerseBridge") || path.Contains("WebRtcConfig")) && 
+                        (platform == null || path.Contains(platform)))
+                    {
+                        AssetDatabase.DeleteAsset(path);
+                        Debug.Log($"[UnityVerseBridge] Deleted WebRTC config: {path}");
+                        removedCount++;
+                    }
+                }
+                
+                // 5. Clean up empty directories
+                CleanupEmptyDirectories("Assets/UnityVerseBridge");
+                CleanupEmptyDirectories("Assets/Resources/Prefabs");
+                
+                // Refresh asset database
+                AssetDatabase.Refresh();
+                
+                string platformText = platform != null ? $"{platform} " : "";
+                EditorUtility.DisplayDialog("Cleanup Complete", 
+                    $"Successfully removed {removedCount} {platformText}UnityVerseBridge components and assets.", 
+                    "OK");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[UnityVerseBridge] Cleanup error: {e.Message}");
+                EditorUtility.DisplayDialog("Cleanup Error", 
+                    $"An error occurred during cleanup:\n{e.Message}", 
+                    "OK");
+            }
+        }
+        
+        private static void CleanupConfigAssets()
+        {
+            int removedCount = 0;
+            
+            try
+            {
+                // Remove ConnectionConfig assets
+                string[] configGuids = AssetDatabase.FindAssets("t:ConnectionConfig", new[] { "Assets" });
+                foreach (string guid in configGuids)
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    AssetDatabase.DeleteAsset(path);
+                    Debug.Log($"[UnityVerseBridge] Deleted config: {path}");
+                    removedCount++;
+                }
+                
+                // Remove WebRtcConfiguration assets
+                string[] webRtcConfigGuids = AssetDatabase.FindAssets("t:WebRtcConfiguration", new[] { "Assets" });
+                foreach (string guid in webRtcConfigGuids)
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (path.Contains("UnityVerseBridge") || path.Contains("WebRtcConfig"))
+                    {
+                        AssetDatabase.DeleteAsset(path);
+                        Debug.Log($"[UnityVerseBridge] Deleted WebRTC config: {path}");
+                        removedCount++;
+                    }
+                }
+                
+                AssetDatabase.Refresh();
+                
+                EditorUtility.DisplayDialog("Cleanup Complete", 
+                    $"Successfully removed {removedCount} configuration assets.", 
+                    "OK");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[UnityVerseBridge] Config cleanup error: {e.Message}");
+                EditorUtility.DisplayDialog("Cleanup Error", 
+                    $"An error occurred during cleanup:\n{e.Message}", 
+                    "OK");
+            }
+        }
+        
+        private static void CleanupSceneInstances()
+        {
+            int removedCount = 0;
+            
+            try
+            {
+                var instances = GameObject.FindObjectsByType<UnityVerseBridgeManager>(FindObjectsSortMode.None);
+                foreach (var instance in instances)
+                {
+                    string name = instance.gameObject.name;
+                    Undo.DestroyObjectImmediate(instance.gameObject);
+                    Debug.Log($"[UnityVerseBridge] Removed instance: {name}");
+                    removedCount++;
+                }
+                
+                EditorUtility.DisplayDialog("Cleanup Complete", 
+                    $"Successfully removed {removedCount} UnityVerseBridge instances from the scene.", 
+                    "OK");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[UnityVerseBridge] Scene cleanup error: {e.Message}");
+                EditorUtility.DisplayDialog("Cleanup Error", 
+                    $"An error occurred during cleanup:\n{e.Message}", 
+                    "OK");
+            }
+        }
+        
+        private static void CleanupEmptyDirectories(string path)
+        {
+            if (!System.IO.Directory.Exists(path))
+                return;
+                
+            try
+            {
+                // First, recursively clean subdirectories
+                string[] subdirs = System.IO.Directory.GetDirectories(path);
+                foreach (string subdir in subdirs)
+                {
+                    CleanupEmptyDirectories(subdir);
+                }
+                
+                // Then check if this directory is empty
+                string[] files = System.IO.Directory.GetFiles(path);
+                subdirs = System.IO.Directory.GetDirectories(path);
+                
+                // Only count non-meta files
+                int nonMetaFiles = 0;
+                foreach (string file in files)
+                {
+                    if (!file.EndsWith(".meta"))
+                    {
+                        nonMetaFiles++;
+                    }
+                }
+                
+                // If directory is empty (no files except .meta and no subdirectories), delete it
+                if (nonMetaFiles == 0 && subdirs.Length == 0)
+                {
+                    // Delete meta file first if it exists
+                    string metaPath = path + ".meta";
+                    if (System.IO.File.Exists(metaPath))
+                    {
+                        System.IO.File.Delete(metaPath);
+                    }
+                    
+                    // Delete the directory
+                    System.IO.Directory.Delete(path);
+                    Debug.Log($"[UnityVerseBridge] Removed empty directory: {path}");
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[UnityVerseBridge] Could not clean directory {path}: {e.Message}");
+            }
         }
     }
 }
