@@ -1,0 +1,25 @@
+{
+    "name": "UnityVerseBridge.Core.Editor",
+    "rootNamespace": "UnityVerseBridge.Core.Editor",
+    "references": [
+        "UnityVerseBridge.Core.Runtime",
+        "Unity.WebRTC"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.xr.management",
+            "expression": "",
+            "define": "UNITY_XR_MANAGEMENT"
+        }
+    ],
+    "noEngineReferences": false
+}

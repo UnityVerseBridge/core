@@ -1,258 +1,216 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEditor;
-using UnityVerseBridge.Core;
-using UnityVerseBridge.Core.Extensions.Quest;
-using UnityVerseBridge.Core.Extensions.Mobile;
 
 namespace UnityVerseBridge.Core.Editor
 {
-    public class UnityVerseBridgePrefabCreator : EditorWindow
+    public static class UnityVerseBridgePrefabCreator
     {
-        [MenuItem("UnityVerseBridge/Create Prefabs/Quest Host Prefab")]
-        static void CreateQuestPrefab()
+        [MenuItem("UnityVerseBridge/Create Quest Bridge Prefab", false, 11)]
+        public static void CreateQuestBridgePrefab()
         {
-            // Create root GameObject
-            GameObject rootGO = new GameObject("UnityVerseBridge_Quest");
+            var go = CreateUnityVerseBridgeManager("UnityVerseBridge_Quest");
+            if (go != null)
+            {
+                var manager = go.GetComponent<UnityVerseBridgeManager>();
+                if (manager != null)
+                {
+                    // Quest 전용 설정
+                    SerializedObject so = new SerializedObject(manager);
+                    so.FindProperty("enableVideoStreaming").boolValue = true;
+                    so.FindProperty("enableTouchReceiving").boolValue = true;
+                    so.FindProperty("enableHapticFeedback").boolValue = true;
+                    so.FindProperty("enableVideoReceiving").boolValue = false;
+                    so.FindProperty("enableTouchSending").boolValue = false;
+                    so.FindProperty("enableHapticReceiving").boolValue = false;
+                    so.ApplyModifiedProperties();
+                    
+                    Debug.Log("[UnityVerseBridge] Quest Bridge created. Please assign:");
+                    Debug.Log("  1. VR Camera (required)");
+                    Debug.Log("  2. Connection Config (required)");
+                    Debug.Log("  3. Touch Canvas (optional - will be created automatically)");
+                }
+            }
+        }
+
+        [MenuItem("UnityVerseBridge/Create Mobile Bridge Prefab", false, 12)]
+        public static void CreateMobileBridgePrefab()
+        {
+            var go = CreateUnityVerseBridgeManager("UnityVerseBridge_Mobile");
+            if (go != null)
+            {
+                var manager = go.GetComponent<UnityVerseBridgeManager>();
+                if (manager != null)
+                {
+                    // Mobile 전용 설정
+                    SerializedObject so = new SerializedObject(manager);
+                    so.FindProperty("enableVideoStreaming").boolValue = false;
+                    so.FindProperty("enableTouchReceiving").boolValue = false;
+                    so.FindProperty("enableHapticFeedback").boolValue = false;
+                    so.FindProperty("enableVideoReceiving").boolValue = true;
+                    so.FindProperty("enableTouchSending").boolValue = true;
+                    so.FindProperty("enableHapticReceiving").boolValue = true;
+                    so.FindProperty("enableAutoConnect").boolValue = false; // Manual connection for mobile
+                    so.ApplyModifiedProperties();
+                    
+                    // Create UI elements
+                    CreateMobileUI(go);
+                    
+                    Debug.Log("[UnityVerseBridge] Mobile Bridge created. Please assign:");
+                    Debug.Log("  1. Connection Config (required)");
+                    Debug.Log("  2. Video Display is already connected to the created RawImage");
+                }
+            }
+        }
+
+        private static GameObject CreateUnityVerseBridgeManager(string name)
+        {
+            GameObject go = new GameObject(name);
+            var manager = go.AddComponent<UnityVerseBridgeManager>();
             
-            // Add UnityVerseBridgeManager
-            UnityVerseBridgeManager bridgeManager = rootGO.AddComponent<UnityVerseBridgeManager>();
+            // Find or create default WebRTC config
+            var webRtcConfig = FindOrCreateDefaultWebRtcConfig();
+            if (webRtcConfig != null)
+            {
+                SerializedObject so = new SerializedObject(manager);
+                so.FindProperty("webRtcConfiguration").objectReferenceValue = webRtcConfig;
+                so.ApplyModifiedProperties();
+            }
             
-            // Create and configure ConnectionConfig
-            ConnectionConfig config = ScriptableObject.CreateInstance<ConnectionConfig>();
-            config.signalingServerUrl = "ws://localhost:8080";
-            config.roomId = "quest-room-001";
+            // Create default connection config
+            var connectionConfig = CreateDefaultConnectionConfig(name);
+            if (connectionConfig != null)
+            {
+                SerializedObject so = new SerializedObject(manager);
+                so.FindProperty("configuration").objectReferenceValue = connectionConfig;
+                so.ApplyModifiedProperties();
+            }
             
-            // Save ConnectionConfig as asset
-            string configPath = "Assets/Resources/Prefabs/QuestConnectionConfig.asset";
-            EnsureDirectoryExists(configPath);
-            AssetDatabase.CreateAsset(config, configPath);
+            Selection.activeGameObject = go;
+            EditorGUIUtility.PingObject(go);
             
-            // Configure bridge manager
-            bridgeManager.ConnectionConfig = config;
-            
-            // Use reflection to set private fields
-            var bridgeType = typeof(UnityVerseBridgeManager);
-            var bridgeModeField = bridgeType.GetField("bridgeMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            bridgeModeField.SetValue(bridgeManager, UnityVerseBridgeManager.BridgeMode.Host);
-            
-            var enableVideoField = bridgeType.GetField("enableVideo", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            enableVideoField.SetValue(bridgeManager, true);
-            
-            var enableAudioField = bridgeType.GetField("enableAudio", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            enableAudioField.SetValue(bridgeManager, true);
-            
-            var enableTouchField = bridgeType.GetField("enableTouch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            enableTouchField.SetValue(bridgeManager, true);
-            
-            var enableHapticsField = bridgeType.GetField("enableHaptics", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            enableHapticsField.SetValue(bridgeManager, true);
-            
-            // Add Quest-specific extensions
-            #if UNITY_ANDROID || UNITY_EDITOR
-            rootGO.AddComponent<QuestHapticExtension>();
-            rootGO.AddComponent<QuestVideoExtension>();
-            rootGO.AddComponent<QuestTouchExtension>();
-            #endif
-            
-            // Create video stream setup
-            GameObject videoStreamGO = new GameObject("VideoStreamSetup");
-            videoStreamGO.transform.SetParent(rootGO.transform);
-            
-            // Note: User needs to assign camera and render texture manually
-            
-            // Save as prefab
-            string prefabPath = "Assets/Prefabs/Quest/UnityVerseBridge_Quest.prefab";
-            EnsureDirectoryExists(prefabPath);
-            PrefabUtility.SaveAsPrefabAsset(rootGO, prefabPath);
-            
-            // Cleanup
-            DestroyImmediate(rootGO);
-            
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-            
-            Debug.Log($"Quest Host Prefab created at: {prefabPath}");
-            Selection.activeObject = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            return go;
         }
         
-        [MenuItem("UnityVerseBridge/Create Prefabs/Mobile Client Prefab")]
-        static void CreateMobilePrefab()
+        private static void CreateMobileUI(GameObject parent)
         {
-            // Create root GameObject
-            GameObject rootGO = new GameObject("UnityVerseBridge_Mobile");
-            
-            // Add UnityVerseBridgeManager
-            UnityVerseBridgeManager bridgeManager = rootGO.AddComponent<UnityVerseBridgeManager>();
-            
-            // Create and configure ConnectionConfig
-            ConnectionConfig config = ScriptableObject.CreateInstance<ConnectionConfig>();
-            config.signalingServerUrl = "ws://localhost:8080";
-            config.roomId = "quest-room-001";
-            
-            // Save ConnectionConfig as asset
-            string configPath = "Assets/Resources/Prefabs/MobileConnectionConfig.asset";
-            EnsureDirectoryExists(configPath);
-            AssetDatabase.CreateAsset(config, configPath);
-            
-            // Configure bridge manager
-            bridgeManager.ConnectionConfig = config;
-            
-            // Use reflection to set private fields
-            var bridgeType = typeof(UnityVerseBridgeManager);
-            var bridgeModeField = bridgeType.GetField("bridgeMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            bridgeModeField.SetValue(bridgeManager, UnityVerseBridgeManager.BridgeMode.Client);
-            
-            var enableVideoField = bridgeType.GetField("enableVideo", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            enableVideoField.SetValue(bridgeManager, true);
-            
-            var enableAudioField = bridgeType.GetField("enableAudio", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            enableAudioField.SetValue(bridgeManager, true);
-            
-            var enableTouchField = bridgeType.GetField("enableTouch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            enableTouchField.SetValue(bridgeManager, true);
-            
-            var enableHapticsField = bridgeType.GetField("enableHaptics", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            enableHapticsField.SetValue(bridgeManager, true);
-            
-            var autoConnectField = bridgeType.GetField("autoConnect", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            autoConnectField.SetValue(bridgeManager, false); // Manual connection for mobile
-            
-            // Add Mobile-specific extensions
-            rootGO.AddComponent<MobileVideoExtension>();
-            rootGO.AddComponent<MobileInputExtension>();
-            rootGO.AddComponent<MobileHapticExtension>();
-            MobileConnectionUI connectionUI = rootGO.AddComponent<MobileConnectionUI>();
-            
-            // Create UI Canvas
-            GameObject canvasGO = new GameObject("UI Canvas");
-            canvasGO.transform.SetParent(rootGO.transform);
-            Canvas canvas = canvasGO.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            
-            CanvasScaler scaler = canvasGO.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080);
-            
-            canvasGO.AddComponent<GraphicRaycaster>();
-            
-            // Create video display
-            GameObject videoDisplayGO = new GameObject("VideoDisplay");
-            videoDisplayGO.transform.SetParent(canvasGO.transform, false);
-            RawImage rawImage = videoDisplayGO.AddComponent<RawImage>();
-            
-            // Setup RectTransform for full screen
-            RectTransform rectTransform = rawImage.rectTransform;
-            rectTransform.anchorMin = Vector2.zero;
-            rectTransform.anchorMax = Vector2.one;
-            rectTransform.sizeDelta = Vector2.zero;
-            rectTransform.anchoredPosition = Vector2.zero;
-            
-            // Add aspect ratio fitter
-            AspectRatioFitter aspectFitter = videoDisplayGO.AddComponent<AspectRatioFitter>();
-            aspectFitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
-            aspectFitter.aspectRatio = 16f / 9f;
-            
-            // Configure MobileVideoExtension
-            MobileVideoExtension videoExt = rootGO.GetComponent<MobileVideoExtension>();
-            if (videoExt != null)
+            // Find existing Canvas or create new one
+            Canvas canvas = GameObject.FindFirstObjectByType<Canvas>();
+            if (canvas == null)
             {
-                SerializedObject so = new SerializedObject(videoExt);
-                so.FindProperty("displayImage").objectReferenceValue = rawImage;
-                so.ApplyModifiedProperties();
+                GameObject canvasGO = new GameObject("Canvas");
+                canvas = canvasGO.AddComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvasGO.AddComponent<UnityEngine.UI.CanvasScaler>();
+                canvasGO.AddComponent<UnityEngine.UI.GraphicRaycaster>();
             }
             
-            // Configure MobileInputExtension
-            MobileInputExtension inputExt = rootGO.GetComponent<MobileInputExtension>();
-            if (inputExt != null)
+            // Create RawImage for video display
+            GameObject rawImageGO = new GameObject("VideoDisplay");
+            rawImageGO.transform.SetParent(canvas.transform, false);
+            RawImage rawImage = rawImageGO.AddComponent<RawImage>();
+            RectTransform rt = rawImage.rectTransform;
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+            rawImage.color = Color.black;
+            
+            // Create connection UI panel
+            GameObject connectionPanel = CreateConnectionUI(canvas);
+            
+            // Assign to manager
+            var manager = parent.GetComponent<UnityVerseBridgeManager>();
+            if (manager != null)
             {
-                SerializedObject so = new SerializedObject(inputExt);
-                so.FindProperty("touchArea").objectReferenceValue = rectTransform;
+                SerializedObject so = new SerializedObject(manager);
+                so.FindProperty("videoDisplay").objectReferenceValue = rawImage;
+                so.FindProperty("connectionUI").objectReferenceValue = connectionPanel;
                 so.ApplyModifiedProperties();
             }
-            
-            // Create connection UI (optional)
-            GameObject connectionPanel = CreateConnectionUI(canvasGO, bridgeManager);
-            
-            // Configure MobileConnectionUI
-            if (connectionUI != null)
-            {
-                SerializedObject so = new SerializedObject(connectionUI);
-                so.FindProperty("connectionPanel").objectReferenceValue = connectionPanel;
-                so.FindProperty("roomIdInput").objectReferenceValue = connectionPanel.GetComponentInChildren<InputField>();
-                so.FindProperty("connectButton").objectReferenceValue = connectionPanel.GetComponentInChildren<Button>();
-                so.FindProperty("statusText").objectReferenceValue = connectionPanel.GetComponentsInChildren<Text>()[0]; // Title text
-                so.ApplyModifiedProperties();
-            }
-            
-            // Save as prefab
-            string prefabPath = "Assets/Prefabs/Mobile/UnityVerseBridge_Mobile.prefab";
-            EnsureDirectoryExists(prefabPath);
-            PrefabUtility.SaveAsPrefabAsset(rootGO, prefabPath);
-            
-            // Cleanup
-            DestroyImmediate(rootGO);
-            
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-            
-            Debug.Log($"Mobile Client Prefab created at: {prefabPath}");
-            Selection.activeObject = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
         }
         
-        static GameObject CreateConnectionUI(GameObject canvasGO, UnityVerseBridgeManager bridgeManager)
+        private static GameObject CreateConnectionUI(Canvas canvas)
         {
-            // Create UI panel
-            GameObject panelGO = new GameObject("ConnectionPanel");
-            panelGO.transform.SetParent(canvasGO.transform, false);
-            Image panelImage = panelGO.AddComponent<Image>();
-            panelImage.color = new Color(0, 0, 0, 0.8f);
+            // Create panel
+            GameObject panel = new GameObject("ConnectionPanel");
+            panel.transform.SetParent(canvas.transform, false);
             
-            RectTransform panelRect = panelGO.GetComponent<RectTransform>();
+            Image panelImage = panel.AddComponent<Image>();
+            panelImage.color = new Color(0.2f, 0.2f, 0.2f, 0.95f);
+            
+            RectTransform panelRect = panel.GetComponent<RectTransform>();
             panelRect.anchorMin = new Vector2(0.5f, 0.5f);
             panelRect.anchorMax = new Vector2(0.5f, 0.5f);
-            panelRect.sizeDelta = new Vector2(400, 300);
-            panelRect.anchoredPosition = Vector2.zero;
+            panelRect.sizeDelta = new Vector2(400, 250);
             
-            // Vertical layout
-            VerticalLayoutGroup layout = panelGO.AddComponent<VerticalLayoutGroup>();
+            // Add vertical layout
+            VerticalLayoutGroup layout = panel.AddComponent<VerticalLayoutGroup>();
             layout.padding = new RectOffset(20, 20, 20, 20);
-            layout.spacing = 10;
-            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.spacing = 15;
             layout.childControlWidth = true;
             layout.childControlHeight = false;
             layout.childForceExpandWidth = true;
-            layout.childForceExpandHeight = false;
             
             // Title
             GameObject titleGO = new GameObject("Title");
-            titleGO.transform.SetParent(panelGO.transform, false);
-            Text titleText = titleGO.AddComponent<Text>();
-            titleText.text = "UnityVerse Connection";
-            titleText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            titleText.fontSize = 24;
-            titleText.alignment = TextAnchor.MiddleCenter;
-            titleText.color = Color.white;
+            titleGO.transform.SetParent(panel.transform, false);
+            Text title = titleGO.AddComponent<Text>();
+            title.text = "UnityVerse Connection";
+            title.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            title.fontSize = 24;
+            title.alignment = TextAnchor.MiddleCenter;
+            title.color = Color.white;
             
-            RectTransform titleRect = titleGO.GetComponent<RectTransform>();
-            titleRect.sizeDelta = new Vector2(0, 40);
+            LayoutElement titleLayout = titleGO.AddComponent<LayoutElement>();
+            titleLayout.preferredHeight = 40;
             
-            // Room ID Input
-            GameObject inputFieldGO = new GameObject("RoomIdInput");
-            inputFieldGO.transform.SetParent(panelGO.transform, false);
-            InputField inputField = inputFieldGO.AddComponent<InputField>();
-            inputField.textComponent = CreateTextComponent(inputFieldGO, "Text");
-            inputField.placeholder = CreateTextComponent(inputFieldGO, "Placeholder", "Enter Room ID");
+            // Room ID input
+            GameObject inputGO = new GameObject("RoomInput");
+            inputGO.transform.SetParent(panel.transform, false);
+            InputField input = inputGO.AddComponent<InputField>();
+            Image inputBg = inputGO.AddComponent<Image>();
+            inputBg.color = new Color(0.1f, 0.1f, 0.1f, 1f);
             
-            Image inputBg = inputFieldGO.AddComponent<Image>();
-            inputBg.color = new Color(0.2f, 0.2f, 0.2f, 1f);
+            GameObject inputTextGO = new GameObject("Text");
+            inputTextGO.transform.SetParent(inputGO.transform, false);
+            Text inputText = inputTextGO.AddComponent<Text>();
+            inputText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            inputText.fontSize = 18;
+            inputText.color = Color.white;
+            inputText.supportRichText = false;
             
-            RectTransform inputRect = inputFieldGO.GetComponent<RectTransform>();
-            inputRect.sizeDelta = new Vector2(0, 40);
+            RectTransform inputTextRect = inputTextGO.GetComponent<RectTransform>();
+            inputTextRect.anchorMin = Vector2.zero;
+            inputTextRect.anchorMax = Vector2.one;
+            inputTextRect.offsetMin = new Vector2(10, 0);
+            inputTextRect.offsetMax = new Vector2(-10, 0);
             
-            // Connect Button
+            GameObject placeholderGO = new GameObject("Placeholder");
+            placeholderGO.transform.SetParent(inputGO.transform, false);
+            Text placeholder = placeholderGO.AddComponent<Text>();
+            placeholder.text = "Enter Room ID...";
+            placeholder.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            placeholder.fontSize = 18;
+            placeholder.fontStyle = FontStyle.Italic;
+            placeholder.color = new Color(0.5f, 0.5f, 0.5f, 1f);
+            
+            RectTransform placeholderRect = placeholderGO.GetComponent<RectTransform>();
+            placeholderRect.anchorMin = Vector2.zero;
+            placeholderRect.anchorMax = Vector2.one;
+            placeholderRect.offsetMin = new Vector2(10, 0);
+            placeholderRect.offsetMax = new Vector2(-10, 0);
+            
+            input.targetGraphic = inputBg;
+            input.textComponent = inputText;
+            input.placeholder = placeholder;
+            
+            LayoutElement inputLayout = inputGO.AddComponent<LayoutElement>();
+            inputLayout.preferredHeight = 40;
+            
+            // Connect button
             GameObject buttonGO = new GameObject("ConnectButton");
-            buttonGO.transform.SetParent(panelGO.transform, false);
+            buttonGO.transform.SetParent(panel.transform, false);
             Button button = buttonGO.AddComponent<Button>();
             Image buttonImage = buttonGO.AddComponent<Image>();
             buttonImage.color = new Color(0.2f, 0.6f, 1f, 1f);
@@ -270,55 +228,80 @@ namespace UnityVerseBridge.Core.Editor
             buttonTextRect.anchorMin = Vector2.zero;
             buttonTextRect.anchorMax = Vector2.one;
             buttonTextRect.sizeDelta = Vector2.zero;
-            buttonTextRect.anchoredPosition = Vector2.zero;
             
-            RectTransform buttonRect = buttonGO.GetComponent<RectTransform>();
-            buttonRect.sizeDelta = new Vector2(0, 50);
+            LayoutElement buttonLayout = buttonGO.AddComponent<LayoutElement>();
+            buttonLayout.preferredHeight = 45;
             
-            // Note: The actual connection logic needs to be implemented in a separate script
+            // Status text
+            GameObject statusGO = new GameObject("StatusText");
+            statusGO.transform.SetParent(panel.transform, false);
+            Text status = statusGO.AddComponent<Text>();
+            status.text = "Not connected";
+            status.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            status.fontSize = 16;
+            status.alignment = TextAnchor.MiddleCenter;
+            status.color = new Color(0.8f, 0.8f, 0.8f, 1f);
             
-            return panelGO;
+            LayoutElement statusLayout = statusGO.AddComponent<LayoutElement>();
+            statusLayout.preferredHeight = 30;
+            
+            return panel;
         }
         
-        static Text CreateTextComponent(GameObject parent, string name, string text = "")
+        private static WebRtcConfiguration FindOrCreateDefaultWebRtcConfig()
         {
-            GameObject textGO = new GameObject(name);
-            textGO.transform.SetParent(parent.transform, false);
-            Text textComp = textGO.AddComponent<Text>();
-            textComp.text = text;
-            textComp.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            textComp.fontSize = 16;
-            textComp.color = text == "" ? Color.black : Color.gray;
-            
-            RectTransform textRect = textGO.GetComponent<RectTransform>();
-            textRect.anchorMin = Vector2.zero;
-            textRect.anchorMax = Vector2.one;
-            textRect.offsetMin = new Vector2(10, 0);
-            textRect.offsetMax = new Vector2(-10, 0);
-            
-            return textComp;
-        }
-        
-        static void EnsureDirectoryExists(string filePath)
-        {
-            string directory = System.IO.Path.GetDirectoryName(filePath);
-            if (!System.IO.Directory.Exists(directory))
+            // Try to find existing
+            string[] guids = AssetDatabase.FindAssets("t:WebRtcConfiguration DefaultWebRtcConfig");
+            if (guids.Length > 0)
             {
-                System.IO.Directory.CreateDirectory(directory);
+                string path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                return AssetDatabase.LoadAssetAtPath<WebRtcConfiguration>(path);
             }
+            
+            // Create new one using menu command
+            UnityVerseBridgeMenu.CreateDefaultWebRtcConfiguration();
+            
+            // Try to find again
+            AssetDatabase.Refresh();
+            guids = AssetDatabase.FindAssets("t:WebRtcConfiguration DefaultWebRtcConfig");
+            if (guids.Length > 0)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                return AssetDatabase.LoadAssetAtPath<WebRtcConfiguration>(path);
+            }
+            
+            return null;
         }
         
-        [MenuItem("UnityVerseBridge/Create Prefabs/Create Both Prefabs")]
-        static void CreateBothPrefabs()
+        private static ConnectionConfig CreateDefaultConnectionConfig(string prefabName)
         {
-            CreateQuestPrefab();
-            CreateMobilePrefab();
+            string configName = prefabName.Contains("Quest") ? "QuestConnectionConfig" : "MobileConnectionConfig";
+            string path = $"Assets/UnityVerseBridge/{configName}.asset";
             
-            EditorUtility.DisplayDialog("UnityVerseBridge", 
-                "Quest and Mobile prefabs have been created successfully!\n\n" +
-                "Quest: Assets/Prefabs/Quest/UnityVerseBridge_Quest.prefab\n" +
-                "Mobile: Assets/Prefabs/Mobile/UnityVerseBridge_Mobile.prefab", 
-                "OK");
+            // Check if already exists
+            var existing = AssetDatabase.LoadAssetAtPath<ConnectionConfig>(path);
+            if (existing != null)
+            {
+                return existing;
+            }
+            
+            // Create new
+            var config = ScriptableObject.CreateInstance<ConnectionConfig>();
+            config.signalingServerUrl = "ws://localhost:8080";
+            config.roomId = "test-room";
+            config.autoGenerateRoomId = false;
+            
+            // Ensure directory exists
+            string dir = System.IO.Path.GetDirectoryName(path);
+            if (!System.IO.Directory.Exists(dir))
+            {
+                System.IO.Directory.CreateDirectory(dir);
+            }
+            
+            AssetDatabase.CreateAsset(config, path);
+            AssetDatabase.SaveAssets();
+            
+            return config;
         }
     }
 }
