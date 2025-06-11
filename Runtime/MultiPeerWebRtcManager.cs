@@ -30,8 +30,8 @@ namespace UnityVerseBridge.Core
         [SerializeField] private int _activeConnectionsCount = 0;
         [SerializeField] private List<string> _connectedPeerIds = new List<string>();
 
-        // 피어 연결 관리
-        private Dictionary<string, PeerConnectionContext> peerConnections = new Dictionary<string, PeerConnectionContext>();
+        // 피어 연결 관리 - WebRtcConnectionHandler 사용
+        private Dictionary<string, WebRtcConnectionHandler> connectionHandlers = new Dictionary<string, WebRtcConnectionHandler>();
         private ISignalingClient signalingClient;
         
         // 공유 리소스
@@ -54,16 +54,6 @@ namespace UnityVerseBridge.Core
             Client  // N (Mobile - 스트림 수신자)
         }
 
-        private class PeerConnectionContext
-        {
-            public string PeerId { get; set; }
-            public RTCPeerConnection Connection { get; set; }
-            public RTCDataChannel DataChannel { get; set; }
-            public MediaStream ReceiveStream { get; set; }
-            public bool IsConnected { get; set; }
-            public DateTime LastActivity { get; set; }
-            public Dictionary<MediaStreamTrack, RTCRtpSender> TrackSenders { get; set; } = new Dictionary<MediaStreamTrack, RTCRtpSender>();
-        }
 
         void Awake()
         {
@@ -79,8 +69,8 @@ namespace UnityVerseBridge.Core
             signalingClient?.DispatchMessages();
             
             // 연결 상태 모니터링
-            _activeConnectionsCount = peerConnections.Count(p => p.Value.IsConnected);
-            _connectedPeerIds = peerConnections.Where(p => p.Value.IsConnected).Select(p => p.Key).ToList();
+            _activeConnectionsCount = connectionHandlers.Count(p => p.Value.IsConnected);
+            _connectedPeerIds = connectionHandlers.Where(p => p.Value.IsConnected).Select(p => p.Key).ToList();
         }
 
         void OnDestroy()
@@ -146,18 +136,18 @@ namespace UnityVerseBridge.Core
                 sharedSendStream.AddTrack(videoTrack);
                 
                 // 모든 연결된 피어에게 트랙 추가
-                foreach (var peer in peerConnections.Values.Where(p => p.IsConnected))
+                foreach (var kvp in connectionHandlers.Where(p => p.Value.IsConnected))
                 {
-                    AddTrackToPeer(peer, videoTrack);
+                    kvp.Value.AddVideoTrack(videoTrack);
                 }
             }
             else
             {
                 // 클라이언트는 호스트에게만 트랙 전송
-                var hostPeer = peerConnections.Values.FirstOrDefault();
-                if (hostPeer != null && hostPeer.IsConnected)
+                var hostHandler = connectionHandlers.Values.FirstOrDefault();
+                if (hostHandler != null && hostHandler.IsConnected)
                 {
-                    AddTrackToPeer(hostPeer, videoTrack);
+                    hostHandler.AddVideoTrack(videoTrack);
                 }
             }
         }
@@ -175,18 +165,18 @@ namespace UnityVerseBridge.Core
                 sharedSendStream.AddTrack(audioTrack);
                 
                 // 모든 연결된 피어에게 트랙 추가
-                foreach (var peer in peerConnections.Values.Where(p => p.IsConnected))
+                foreach (var kvp in connectionHandlers.Where(p => p.Value.IsConnected))
                 {
-                    AddTrackToPeer(peer, audioTrack);
+                    kvp.Value.AddAudioTrack(audioTrack);
                 }
             }
             else
             {
                 // 클라이언트는 호스트에게만 트랙 전송
-                var hostPeer = peerConnections.Values.FirstOrDefault();
-                if (hostPeer != null && hostPeer.IsConnected)
+                var hostHandler = connectionHandlers.Values.FirstOrDefault();
+                if (hostHandler != null && hostHandler.IsConnected)
                 {
-                    AddTrackToPeer(hostPeer, audioTrack);
+                    hostHandler.AddAudioTrack(audioTrack);
                 }
             }
         }
@@ -203,20 +193,20 @@ namespace UnityVerseBridge.Core
             }
 
             // 모든 피어에서 트랙 제거
-            foreach (var peer in peerConnections.Values)
+            foreach (var handler in connectionHandlers.Values)
             {
-                RemoveTrackFromPeer(peer, track);
+                handler.RemoveTrack(track);
             }
         }
 
         public void SendDataChannelMessage(string peerId, object messageData)
         {
-            if (peerConnections.TryGetValue(peerId, out var peer) && peer.DataChannel?.ReadyState == RTCDataChannelState.Open)
+            if (connectionHandlers.TryGetValue(peerId, out var handler) && handler.IsDataChannelOpen)
             {
                 try
                 {
                     string jsonMessage = JsonUtility.ToJson(messageData);
-                    peer.DataChannel.Send(jsonMessage);
+                    handler.SendDataChannelMessage(jsonMessage);
                 }
                 catch (Exception e)
                 {
@@ -229,36 +219,36 @@ namespace UnityVerseBridge.Core
         {
             string jsonMessage = JsonUtility.ToJson(messageData);
             
-            foreach (var peer in peerConnections.Values.Where(p => p.DataChannel?.ReadyState == RTCDataChannelState.Open))
+            foreach (var kvp in connectionHandlers.Where(h => h.Value.IsDataChannelOpen))
             {
                 try
                 {
-                    peer.DataChannel.Send(jsonMessage);
+                    kvp.Value.SendDataChannelMessage(jsonMessage);
                 }
                 catch (Exception e)
                 {
-                    Debug.LogError($"[MultiPeerWebRtcManager] Failed to broadcast to {peer.PeerId}: {e.Message}");
+                    Debug.LogError($"[MultiPeerWebRtcManager] Failed to broadcast to {kvp.Key}: {e.Message}");
                 }
             }
         }
 
         public void DisconnectPeer(string peerId)
         {
-            if (peerConnections.TryGetValue(peerId, out var peer))
+            if (connectionHandlers.TryGetValue(peerId, out var handler))
             {
-                CleanupPeerConnection(peer);
-                peerConnections.Remove(peerId);
+                handler.Close();
+                connectionHandlers.Remove(peerId);
                 OnPeerDisconnected?.Invoke(peerId);
             }
         }
 
         public void DisconnectAll()
         {
-            foreach (var peer in peerConnections.Values.ToList())
+            foreach (var handler in connectionHandlers.Values.ToList())
             {
-                CleanupPeerConnection(peer);
+                handler.Close();
             }
-            peerConnections.Clear();
+            connectionHandlers.Clear();
             
             _ = DisconnectSignaling();
         }
@@ -347,7 +337,7 @@ namespace UnityVerseBridge.Core
         {
             var message = JsonUtility.FromJson<PeerJoinedMessage>(jsonData);
             
-            if (peerConnections.Count >= maxConnections)
+            if (connectionHandlers.Count >= maxConnections)
             {
                 Debug.LogWarning($"[MultiPeerWebRtcManager] Max connections reached, rejecting peer: {message.peerId}");
                 return;
@@ -371,45 +361,39 @@ namespace UnityVerseBridge.Core
 
         private void CreatePeerConnection(string peerId, bool createOffer)
         {
-            if (peerConnections.ContainsKey(peerId))
+            if (connectionHandlers.ContainsKey(peerId))
             {
                 Debug.LogWarning($"[MultiPeerWebRtcManager] Peer connection already exists: {peerId}");
                 return;
             }
 
-            var context = new PeerConnectionContext
-            {
-                PeerId = peerId,
-                LastActivity = DateTime.Now
-            };
-
-            // RTCPeerConnection 생성
-            var rtcConfig = configuration.ToRTCConfiguration();
-            context.Connection = new RTCPeerConnection(ref rtcConfig);
+            // WebRtcConnectionHandler 생성
+            var isOfferer = peerRole == PeerRole.Host;
+            var handler = new WebRtcConnectionHandler(peerId, isOfferer, configuration);
             
             // 이벤트 핸들러 설정
-            context.Connection.OnIceCandidate = (candidate) => HandleIceCandidateGenerated(peerId, candidate);
-            context.Connection.OnIceConnectionChange = (state) => HandleIceConnectionChange(peerId, state);
-            context.Connection.OnConnectionStateChange = (state) => HandleConnectionStateChange(peerId, state);
-            context.Connection.OnTrack = (e) => HandleTrackReceived(peerId, e);
-            context.Connection.OnDataChannel = (channel) => HandleDataChannelReceived(peerId, channel);
-            context.Connection.OnNegotiationNeeded = () => HandleNegotiationNeeded(peerId);
+            handler.OnIceCandidateGenerated += (candidate) => HandleIceCandidateGenerated(peerId, candidate);
+            handler.OnConnectionStateChanged += () => HandleConnectionStateChange(peerId, handler.ConnectionState);
+            handler.OnVideoTrackReceived += (track) => HandleVideoTrackReceived(peerId, track);
+            handler.OnAudioTrackReceived += (track) => HandleAudioTrackReceived(peerId, track);
+            handler.OnDataChannelMessage += (message) => OnDataChannelMessageReceived?.Invoke(peerId, message);
+            handler.OnDataChannelOpen += (channel) => Debug.Log($"[MultiPeerWebRtcManager] DataChannel opened with {peerId}");
+            handler.OnDataChannelClose += (channel) => Debug.Log($"[MultiPeerWebRtcManager] DataChannel closed with {peerId}");
+            handler.OnNegotiationNeeded += () => HandleNegotiationNeeded(peerId);
 
-            // DataChannel 생성 (호스트만)
-            if (peerRole == PeerRole.Host)
-            {
-                var dataChannelInit = new RTCDataChannelInit { ordered = true };
-                context.DataChannel = context.Connection.CreateDataChannel($"data-{peerId}", dataChannelInit);
-                SetupDataChannelEvents(context.DataChannel, peerId);
-            }
+            // 핸들러 초기화
+            handler.Initialize();
 
             // 로컬 트랙 추가
             foreach (var track in localTracks)
             {
-                AddTrackToPeer(context, track);
+                if (track is VideoStreamTrack videoTrack)
+                    handler.AddVideoTrack(videoTrack);
+                else if (track is AudioStreamTrack audioTrack)
+                    handler.AddAudioTrack(audioTrack);
             }
 
-            peerConnections[peerId] = context;
+            connectionHandlers[peerId] = handler;
 
             if (createOffer)
             {
@@ -417,54 +401,23 @@ namespace UnityVerseBridge.Core
             }
         }
 
-        private void AddTrackToPeer(PeerConnectionContext peer, MediaStreamTrack track)
-        {
-            if (peer.Connection == null || track == null) return;
-
-            var sender = peer.Connection.AddTrack(track);
-            if (sender != null)
-            {
-                peer.TrackSenders[track] = sender;
-                Debug.Log($"[MultiPeerWebRtcManager] Added track {track.Id} to peer {peer.PeerId}");
-            }
-        }
-
-        private void RemoveTrackFromPeer(PeerConnectionContext peer, MediaStreamTrack track)
-        {
-            if (peer.TrackSenders.TryGetValue(track, out var sender))
-            {
-                peer.Connection.RemoveTrack(sender);
-                peer.TrackSenders.Remove(track);
-                Debug.Log($"[MultiPeerWebRtcManager] Removed track {track.Id} from peer {peer.PeerId}");
-            }
-        }
 
         private IEnumerator CreateAndSendOffer(string peerId)
         {
-            if (!peerConnections.TryGetValue(peerId, out var peer)) yield break;
+            if (!connectionHandlers.TryGetValue(peerId, out var handler)) yield break;
 
-            var offerOp = peer.Connection.CreateOffer();
-            yield return offerOp;
-
-            if (offerOp.IsError)
-            {
-                Debug.LogError($"[MultiPeerWebRtcManager] Failed to create offer for {peerId}: {offerOp.Error.message}");
-                yield break;
-            }
-
-            var offer = offerOp.Desc;
-            var setLocalOp = peer.Connection.SetLocalDescription(ref offer);
-            yield return setLocalOp;
-
-            if (setLocalOp.IsError)
-            {
-                Debug.LogError($"[MultiPeerWebRtcManager] Failed to set local description for {peerId}: {setLocalOp.Error.message}");
-                yield break;
-            }
-
-            // Offer 전송
-            var offerMessage = new TargetedSessionDescriptionMessage("offer", offer.sdp, peerId);
-            _ = signalingClient.SendMessage(offerMessage);
+            yield return handler.CreateOffer(
+                onSuccess: (desc) => 
+                {
+                    // Offer 전송
+                    var offerMessage = new TargetedSessionDescriptionMessage("offer", desc.sdp, peerId);
+                    _ = signalingClient.SendMessage(offerMessage);
+                },
+                onError: (error) => 
+                {
+                    Debug.LogError($"[MultiPeerWebRtcManager] Failed to create offer for {peerId}: {error}");
+                }
+            );
         }
 
         private void HandleOffer(string jsonData)
@@ -478,7 +431,7 @@ namespace UnityVerseBridge.Core
             }
 
             // 클라이언트는 호스트로부터의 Offer만 처리
-            if (!peerConnections.ContainsKey(message.sourcePeerId))
+            if (!connectionHandlers.ContainsKey(message.sourcePeerId))
             {
                 CreatePeerConnection(message.sourcePeerId, false);
             }
@@ -488,74 +441,79 @@ namespace UnityVerseBridge.Core
 
         private IEnumerator HandleOfferAndSendAnswer(string peerId, string sdp)
         {
-            if (!peerConnections.TryGetValue(peerId, out var peer)) yield break;
+            if (!connectionHandlers.TryGetValue(peerId, out var handler)) yield break;
 
-            var offer = new RTCSessionDescription { type = RTCSdpType.Offer, sdp = sdp };
-            var setRemoteOp = peer.Connection.SetRemoteDescription(ref offer);
-            yield return setRemoteOp;
+            bool offerHandled = false;
+            string offerError = null;
 
-            if (setRemoteOp.IsError)
+            // Offer 처리
+            yield return handler.HandleOffer(sdp, 
+                onSuccess: () => 
+                {
+                    Debug.Log($"[MultiPeerWebRtcManager] Successfully handled offer from {peerId}");
+                    offerHandled = true;
+                },
+                onError: (error) => 
+                {
+                    Debug.LogError($"[MultiPeerWebRtcManager] Failed to handle offer from {peerId}: {error}");
+                    offerError = error;
+                }
+            );
+
+            // Offer 처리 실패 시 중단
+            if (!offerHandled || !string.IsNullOrEmpty(offerError))
             {
-                Debug.LogError($"[MultiPeerWebRtcManager] Failed to set remote description for {peerId}: {setRemoteOp.Error.message}");
                 yield break;
             }
 
-            var answerOp = peer.Connection.CreateAnswer();
-            yield return answerOp;
-
-            if (answerOp.IsError)
-            {
-                Debug.LogError($"[MultiPeerWebRtcManager] Failed to create answer for {peerId}: {answerOp.Error.message}");
-                yield break;
-            }
-
-            var answer = answerOp.Desc;
-            var setLocalOp = peer.Connection.SetLocalDescription(ref answer);
-            yield return setLocalOp;
-
-            if (setLocalOp.IsError)
-            {
-                Debug.LogError($"[MultiPeerWebRtcManager] Failed to set local description for {peerId}: {setLocalOp.Error.message}");
-                yield break;
-            }
-
-            // Answer 전송
-            var answerMessage = new TargetedSessionDescriptionMessage("answer", answer.sdp, peerId);
-            _ = signalingClient.SendMessage(answerMessage);
+            // Answer 생성 및 전송
+            yield return handler.CreateAnswer(
+                onSuccess: (desc) => 
+                {
+                    var answerMessage = new TargetedSessionDescriptionMessage("answer", desc.sdp, peerId);
+                    _ = signalingClient.SendMessage(answerMessage);
+                },
+                onError: (error) => 
+                {
+                    Debug.LogError($"[MultiPeerWebRtcManager] Failed to create answer for {peerId}: {error}");
+                }
+            );
         }
 
         private void HandleAnswer(string jsonData)
         {
             var message = JsonUtility.FromJson<TargetedSessionDescriptionMessage>(jsonData);
             
-            if (!peerConnections.TryGetValue(message.sourcePeerId, out var peer))
+            if (!connectionHandlers.TryGetValue(message.sourcePeerId, out var handler))
             {
                 Debug.LogWarning($"[MultiPeerWebRtcManager] Received answer from unknown peer: {message.sourcePeerId}");
                 return;
             }
 
-            StartCoroutine(SetRemoteDescription(message.sourcePeerId, message.sdp, RTCSdpType.Answer));
+            StartCoroutine(HandleAnswerCoroutine(message.sourcePeerId, message.sdp));
         }
 
-        private IEnumerator SetRemoteDescription(string peerId, string sdp, RTCSdpType type)
+        private IEnumerator HandleAnswerCoroutine(string peerId, string sdp)
         {
-            if (!peerConnections.TryGetValue(peerId, out var peer)) yield break;
+            if (!connectionHandlers.TryGetValue(peerId, out var handler)) yield break;
 
-            var desc = new RTCSessionDescription { type = type, sdp = sdp };
-            var op = peer.Connection.SetRemoteDescription(ref desc);
-            yield return op;
-
-            if (op.IsError)
-            {
-                Debug.LogError($"[MultiPeerWebRtcManager] Failed to set remote description for {peerId}: {op.Error.message}");
-            }
+            yield return handler.HandleAnswer(sdp,
+                onSuccess: () => 
+                {
+                    Debug.Log($"[MultiPeerWebRtcManager] Successfully handled answer from {peerId}");
+                },
+                onError: (error) => 
+                {
+                    Debug.LogError($"[MultiPeerWebRtcManager] Failed to handle answer from {peerId}: {error}");
+                }
+            );
         }
 
         private void HandleIceCandidate(string jsonData)
         {
             var message = JsonUtility.FromJson<TargetedIceCandidateMessage>(jsonData);
             
-            if (!peerConnections.TryGetValue(message.sourcePeerId, out var peer))
+            if (!connectionHandlers.TryGetValue(message.sourcePeerId, out var handler))
             {
                 Debug.LogWarning($"[MultiPeerWebRtcManager] Received ICE candidate from unknown peer: {message.sourcePeerId}");
                 return;
@@ -568,7 +526,7 @@ namespace UnityVerseBridge.Core
                 sdpMLineIndex = message.sdpMLineIndex
             };
 
-            peer.Connection.AddIceCandidate(new RTCIceCandidate(candidateInit));
+            handler.AddIceCandidate(new RTCIceCandidate(candidateInit));
         }
 
         private void HandleIceCandidateGenerated(string peerId, RTCIceCandidate candidate)
@@ -587,93 +545,48 @@ namespace UnityVerseBridge.Core
 
         private void HandleConnectionStateChange(string peerId, RTCPeerConnectionState state)
         {
-            if (!peerConnections.TryGetValue(peerId, out var peer)) return;
+            if (!connectionHandlers.TryGetValue(peerId, out var handler)) return;
 
             Debug.Log($"[MultiPeerWebRtcManager] Peer {peerId} connection state: {state}");
 
             switch (state)
             {
                 case RTCPeerConnectionState.Connected:
-                    peer.IsConnected = true;
-                    peer.LastActivity = DateTime.Now;
                     OnPeerConnected?.Invoke(peerId);
                     break;
 
                 case RTCPeerConnectionState.Disconnected:
                 case RTCPeerConnectionState.Failed:
                 case RTCPeerConnectionState.Closed:
-                    peer.IsConnected = false;
                     OnPeerDisconnected?.Invoke(peerId);
                     break;
             }
         }
 
-        private void HandleIceConnectionChange(string peerId, RTCIceConnectionState state)
+
+        private void HandleVideoTrackReceived(string peerId, MediaStreamTrack track)
         {
-            Debug.Log($"[MultiPeerWebRtcManager] Peer {peerId} ICE state: {state}");
+            Debug.Log($"[MultiPeerWebRtcManager] Video track received from {peerId}");
+            OnTrackReceived?.Invoke(peerId, track);
+            OnVideoTrackReceived?.Invoke(peerId, track as VideoStreamTrack);
         }
 
-        private void HandleTrackReceived(string peerId, RTCTrackEvent e)
+        private void HandleAudioTrackReceived(string peerId, MediaStreamTrack track)
         {
-            if (!peerConnections.TryGetValue(peerId, out var peer)) return;
-
-            Debug.Log($"[MultiPeerWebRtcManager] Track received from {peerId}: {e.Track.Kind}");
-            
-            OnTrackReceived?.Invoke(peerId, e.Track);
-
-            if (e.Track.Kind == TrackKind.Video)
-            {
-                OnVideoTrackReceived?.Invoke(peerId, e.Track as VideoStreamTrack);
-            }
-            else if (e.Track.Kind == TrackKind.Audio)
-            {
-                OnAudioTrackReceived?.Invoke(peerId, e.Track as AudioStreamTrack);
-            }
-        }
-
-        private void HandleDataChannelReceived(string peerId, RTCDataChannel channel)
-        {
-            if (!peerConnections.TryGetValue(peerId, out var peer)) return;
-
-            peer.DataChannel = channel;
-            SetupDataChannelEvents(channel, peerId);
-        }
-
-        private void SetupDataChannelEvents(RTCDataChannel channel, string peerId)
-        {
-            channel.OnOpen = () =>
-            {
-                Debug.Log($"[MultiPeerWebRtcManager] DataChannel opened with {peerId}");
-            };
-
-            channel.OnClose = () =>
-            {
-                Debug.Log($"[MultiPeerWebRtcManager] DataChannel closed with {peerId}");
-            };
-
-            channel.OnMessage = (bytes) =>
-            {
-                var message = System.Text.Encoding.UTF8.GetString(bytes);
-                OnDataChannelMessageReceived?.Invoke(peerId, message);
-            };
+            Debug.Log($"[MultiPeerWebRtcManager] Audio track received from {peerId}");
+            OnTrackReceived?.Invoke(peerId, track);
+            OnAudioTrackReceived?.Invoke(peerId, track as AudioStreamTrack);
         }
 
         private void HandleNegotiationNeeded(string peerId)
         {
-            if (peerRole == PeerRole.Host && peerConnections.ContainsKey(peerId))
+            if (peerRole == PeerRole.Host && connectionHandlers.ContainsKey(peerId))
             {
                 Debug.Log($"[MultiPeerWebRtcManager] Renegotiation needed for {peerId}");
                 StartCoroutine(CreateAndSendOffer(peerId));
             }
         }
 
-        private void CleanupPeerConnection(PeerConnectionContext peer)
-        {
-            peer.DataChannel?.Close();
-            peer.Connection?.Close();
-            peer.ReceiveStream?.Dispose();
-            peer.TrackSenders.Clear();
-        }
 
         #endregion
 
