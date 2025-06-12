@@ -134,9 +134,33 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 }
             }
 
+            // Emergency fallback for Quest builds
+            if (streamCamera == null && Application.platform == RuntimePlatform.Android)
+            {
+                Debug.LogWarning("[QuestVideoExtension] No camera found! Attempting emergency fallback...");
+                
+                // Try to find any active camera
+                Camera[] allCameras = FindObjectsOfType<Camera>();
+                Debug.Log($"[QuestVideoExtension] Found {allCameras.Length} cameras in scene");
+                
+                foreach (var cam in allCameras)
+                {
+                    if (cam.enabled && cam.gameObject.activeInHierarchy)
+                    {
+                        streamCamera = cam;
+                        Debug.LogWarning($"[QuestVideoExtension] Using emergency fallback camera: {cam.name} (tag: {cam.tag})");
+                        break;
+                    }
+                }
+            }
+            
             if (streamCamera == null)
             {
-                Debug.LogError("[QuestVideoExtension] No camera found for streaming!");
+                Debug.LogError("[QuestVideoExtension] CRITICAL: No camera found for streaming! Check your scene setup.");
+                Debug.LogError("[QuestVideoExtension] Make sure you have either:");
+                Debug.LogError("  1. OVRCameraRig in your scene (for Quest)");
+                Debug.LogError("  2. A Camera tagged as 'MainCamera'");
+                Debug.LogError("  3. Any active Camera component");
                 enabled = false;
                 return;
             }
