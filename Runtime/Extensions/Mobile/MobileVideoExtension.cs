@@ -109,6 +109,17 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                     aspectRatioFitter = displayImage.gameObject.AddComponent<AspectRatioFitter>();
                 }
                 aspectRatioFitter.aspectMode = aspectMode;
+                
+                // Ensure the RawImage fills the parent completely
+                RectTransform rect = displayImage.GetComponent<RectTransform>();
+                if (rect != null)
+                {
+                    rect.anchorMin = Vector2.zero;
+                    rect.anchorMax = Vector2.one;
+                    rect.offsetMin = Vector2.zero;
+                    rect.offsetMax = Vector2.zero;
+                    Debug.Log("[MobileVideoExtension] Set RawImage to fill parent container");
+                }
             }
 
             // RenderTexture 생성 또는 확인
@@ -373,11 +384,11 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                 Debug.LogWarning($"[MobileVideoExtension] Display image GameObject is not active! Path: {GetGameObjectPath(displayImage.gameObject)}");
             }
             
-            // Check if image has proper alpha and color
-            if (displayImage.color.a < 0.01f)
+            // Ensure the image has proper color (white for proper video display)
+            if (displayImage.color != Color.white)
             {
-                Debug.LogWarning($"[MobileVideoExtension] Display image alpha is too low: {displayImage.color.a}");
-                displayImage.color = new Color(1f, 1f, 1f, 1f);
+                Debug.Log($"[MobileVideoExtension] Setting display image color to white (was: {displayImage.color})");
+                displayImage.color = Color.white;
             }
             
             // Update aspect ratio
@@ -441,8 +452,8 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             {
                 if (receivedVideoTrack.Texture != null)
                 {
-                    // Log texture info periodically (every 60 frames)
-                    if (Time.frameCount % 60 == 0)
+                    // Log texture info periodically (every 60 frames) - only in debug mode
+                    if (debugMode && Time.frameCount % 60 == 0)
                     {
                         var tex = receivedVideoTrack.Texture;
                         Debug.Log($"[MobileVideoExtension] Polling: Texture available - {tex.width}x{tex.height}, " +

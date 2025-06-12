@@ -150,7 +150,7 @@ namespace UnityVerseBridge.Core.Utils
                 var cameraRigType = System.Type.GetType("OVRCameraRig, Oculus.VR");
                 if (cameraRigType != null)
                 {
-                    var cameraRig = FindObjectOfType(cameraRigType);
+                    var cameraRig = FindFirstObjectByType(cameraRigType);
                     LogInfo("OVRCameraRig", cameraRig != null ? "Found in scene" : "Not in scene");
                 }
             }
@@ -170,7 +170,7 @@ namespace UnityVerseBridge.Core.Utils
         private void LogUnityVerseInfo()
         {
             // Check for UnityVerseBridgeManager
-            var bridge = FindObjectOfType<UnityVerseBridgeManager>();
+            var bridge = FindFirstObjectByType<UnityVerseBridgeManager>();
             if (bridge != null)
             {
                 LogInfo("UnityVerseBridgeManager", "Found");

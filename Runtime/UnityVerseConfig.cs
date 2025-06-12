@@ -90,11 +90,26 @@ namespace UnityVerseBridge.Core
         private PeerRole DetectRoleAutomatically()
         {
             #if UNITY_EDITOR
-                // In editor, check if VR is simulated
-                if (UnityEngine.XR.XRSettings.enabled)
+                // In editor, check project path or name to determine role
+                string projectPath = Application.dataPath.ToLower();
+                if (projectPath.Contains("quest-app") || projectPath.Contains("quest"))
+                {
+                    // Quest app project should always be Host in Editor
                     return PeerRole.Host;
-                else
+                }
+                else if (projectPath.Contains("mobile-app") || projectPath.Contains("mobile"))
+                {
+                    // Mobile app project should always be Client in Editor
                     return PeerRole.Client;
+                }
+                else
+                {
+                    // Fallback: check if VR is simulated
+                    if (UnityEngine.XR.XRSettings.enabled)
+                        return PeerRole.Host;
+                    else
+                        return PeerRole.Client;
+                }
             #elif UNITY_ANDROID
                 // Check if running on Quest/VR device
                 if (UnityEngine.XR.XRSettings.enabled && IsQuestDevice())

@@ -81,7 +81,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             // Find Quest camera if still not assigned
             if (streamCamera == null)
             {
-#if UNITY_ANDROID && QUEST_SUPPORT
+#if UNITY_ANDROID && QUEST_SUPPORT && !UNITY_EDITOR
                 cameraRig = FindFirstObjectByType<OVRNamespace.OVRCameraRig>();
                 if (cameraRig != null)
                 {
@@ -93,6 +93,44 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 if (streamCamera == null)
                 {
                     streamCamera = Camera.main;
+                    
+#if UNITY_EDITOR
+                    // In Editor, create a camera if none exists
+                    if (streamCamera == null)
+                    {
+                        GameObject cameraObj = new GameObject("Editor Stream Camera");
+                        streamCamera = cameraObj.AddComponent<Camera>();
+                        streamCamera.tag = "MainCamera";
+                        cameraObj.transform.position = new Vector3(0, 1.6f, 0);
+                        Debug.Log("[QuestVideoExtension] Created editor camera for streaming");
+                        
+                        // Configure camera for VR-like view
+                        streamCamera.fieldOfView = 90f;
+                        streamCamera.nearClipPlane = 0.01f;
+                        streamCamera.farClipPlane = 1000f;
+                        
+                        // Add simple camera controller for testing
+                        // Note: SimpleEditorCameraController is in Editor assembly, so we try to add it dynamically
+                        try
+                        {
+                            var assemblies = System.AppDomain.CurrentDomain.GetAssemblies();
+                            foreach (var assembly in assemblies)
+                            {
+                                var controllerType = assembly.GetType("UnityVerseBridge.Core.Utils.SimpleEditorCameraController");
+                                if (controllerType != null)
+                                {
+                                    cameraObj.AddComponent(controllerType);
+                                    Debug.Log("[QuestVideoExtension] Added SimpleEditorCameraController for Editor testing");
+                                    break;
+                                }
+                            }
+                        }
+                        catch (System.Exception e)
+                        {
+                            Debug.LogWarning($"[QuestVideoExtension] Could not add camera controller: {e.Message}");
+                        }
+                    }
+#endif
                 }
             }
 
@@ -184,7 +222,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         private void SetupPassthrough()
         {
-#if UNITY_ANDROID && QUEST_SUPPORT
+#if UNITY_ANDROID && QUEST_SUPPORT && !UNITY_EDITOR
             if (capturePassthrough)
             {
                 // Find passthrough layer
@@ -196,6 +234,11 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                     OVRNamespace.OVRManager.instance.isInsightPassthroughEnabled = true;
                     Debug.Log("[QuestVideoExtension] Passthrough enabled");
                 }
+            }
+#elif UNITY_EDITOR
+            if (capturePassthrough)
+            {
+                Debug.Log("[QuestVideoExtension] Passthrough not available in Unity Editor");
             }
 #endif
         }
@@ -231,7 +274,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                     streamCamera.cullingMask = cullingMask;
                 }
 
-#if UNITY_ANDROID && QUEST_SUPPORT
+#if UNITY_ANDROID && QUEST_SUPPORT && !UNITY_EDITOR
                 // Enable passthrough layer
                 if (capturePassthrough && passthroughLayer != null)
                 {
@@ -416,7 +459,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         public void SetCapturePassthrough(bool enable)
         {
             capturePassthrough = enable;
-#if UNITY_ANDROID && QUEST_SUPPORT
+#if UNITY_ANDROID && QUEST_SUPPORT && !UNITY_EDITOR
             if (passthroughLayer != null)
             {
                 passthroughLayer.enabled = enable && isStreaming;
@@ -436,8 +479,10 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             GUI.Label(new Rect(10, 10, 300, 20), $"Quest Streaming: {(isStreaming ? "ON" : "OFF")}");
             GUI.Label(new Rect(10, 30, 300, 20), $"Connected Peers: {currentPeerCount}");
             GUI.Label(new Rect(10, 50, 300, 20), $"Resolution: {renderTexture?.width}x{renderTexture?.height}");
-#if UNITY_ANDROID && QUEST_SUPPORT
+#if UNITY_ANDROID && QUEST_SUPPORT && !UNITY_EDITOR
             GUI.Label(new Rect(10, 70, 300, 20), $"Passthrough: {(capturePassthrough && passthroughLayer?.enabled == true ? "ON" : "OFF")}");
+#elif UNITY_EDITOR
+            GUI.Label(new Rect(10, 70, 300, 20), "Platform: Unity Editor (XR Disabled)");
 #endif
         }
     }

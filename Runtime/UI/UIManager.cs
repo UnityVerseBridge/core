@@ -19,7 +19,7 @@ namespace UnityVerseBridge.Core.UI
             {
                 if (instance == null)
                 {
-                    instance = FindObjectOfType<UIManager>();
+                    instance = FindFirstObjectByType<UIManager>();
                     if (instance == null)
                     {
                         GameObject go = new GameObject("UIManager");
@@ -32,7 +32,7 @@ namespace UnityVerseBridge.Core.UI
         }
         
         [Header("Configuration")]
-        [SerializeField] private string uiTag = "UnityVerseUI";
+        [SerializeField] private string uiTag = ""; // Empty by default to avoid tag errors
         [SerializeField] private string uiLayer = "UI";
         [SerializeField] private int defaultSortingOrder = 100;
         
@@ -261,7 +261,10 @@ namespace UnityVerseBridge.Core.UI
             {
                 if (errorPanelPrefab != null)
                 {
-                    errorPanel = CreateUI<GameObject>(errorPanelPrefab, null, "ErrorPanel");
+                    errorPanel = Instantiate(errorPanelPrefab, GetMainCanvas().transform);
+                    errorPanel.name = "ErrorPanel";
+                    TrackGameObject(errorPanel);
+                    AddPanel("ErrorPanel", errorPanel);
                 }
                 else
                 {
@@ -296,7 +299,10 @@ namespace UnityVerseBridge.Core.UI
             {
                 if (loadingPanelPrefab != null)
                 {
-                    loadingPanel = CreateUI<GameObject>(loadingPanelPrefab, null, "LoadingPanel");
+                    loadingPanel = Instantiate(loadingPanelPrefab, GetMainCanvas().transform);
+                    loadingPanel.name = "LoadingPanel";
+                    TrackGameObject(loadingPanel);
+                    AddPanel("LoadingPanel", loadingPanel);
                 }
                 else
                 {
@@ -336,7 +342,10 @@ namespace UnityVerseBridge.Core.UI
             {
                 if (connectionStatusPrefab != null)
                 {
-                    connectionStatusPanel = CreateUI<GameObject>(connectionStatusPrefab, null, "ConnectionStatus");
+                    connectionStatusPanel = Instantiate(connectionStatusPrefab, GetMainCanvas().transform);
+                    connectionStatusPanel.name = "ConnectionStatus";
+                    TrackGameObject(connectionStatusPanel);
+                    AddPanel("ConnectionStatus", connectionStatusPanel);
                 }
                 else
                 {
@@ -378,8 +387,19 @@ namespace UnityVerseBridge.Core.UI
         {
             if (obj == null) return;
             
-            // Add tag
-            obj.tag = uiTag;
+            // Add tag only if it exists
+            if (!string.IsNullOrEmpty(uiTag))
+            {
+                try
+                {
+                    obj.tag = uiTag;
+                }
+                catch (UnityException)
+                {
+                    // Silently ignore tag errors - it's optional functionality
+                    // User can add the tag if they want to use this feature
+                }
+            }
             
             // Set layer recursively
             SetLayerRecursively(obj, LayerMask.NameToLayer(uiLayer));
@@ -445,6 +465,17 @@ namespace UnityVerseBridge.Core.UI
             errorPanel = null;
             loadingPanel = null;
             connectionStatusPanel = null;
+        }
+        
+        /// <summary>
+        /// Add a panel to the named panels dictionary
+        /// </summary>
+        public void AddPanel(string name, GameObject panel)
+        {
+            if (!string.IsNullOrEmpty(name) && panel != null)
+            {
+                namedPanels[name] = panel;
+            }
         }
         
         /// <summary>

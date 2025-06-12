@@ -9,10 +9,11 @@ namespace UnityVerseBridge.Core.Editor
     [CustomEditor(typeof(UnityVerseBridgeManager))]
     public class UnityVerseBridgeManagerEditor : UnityEditor.Editor
     {
-        private SerializedProperty configuration;
-        private SerializedProperty webRtcConfiguration;
+        private SerializedProperty unityVerseConfig;
+        private SerializedProperty legacyConfig;
+        private SerializedProperty showDebugUI;
+        private SerializedProperty debugDisplayMode;
         private SerializedProperty enableAutoConnect;
-        private SerializedProperty enableDebugLogging;
         
         // Quest-specific properties
         private SerializedProperty vrCamera;
@@ -39,24 +40,27 @@ namespace UnityVerseBridge.Core.Editor
         void OnEnable()
         {
             // Common properties
-            configuration = serializedObject.FindProperty("configuration");
-            webRtcConfiguration = serializedObject.FindProperty("webRtcConfiguration");
+            unityVerseConfig = serializedObject.FindProperty("unityVerseConfig");
+            legacyConfig = serializedObject.FindProperty("legacyConfig");
+            showDebugUI = serializedObject.FindProperty("showDebugUI");
+            debugDisplayMode = serializedObject.FindProperty("debugDisplayMode");
             enableAutoConnect = serializedObject.FindProperty("enableAutoConnect");
-            enableDebugLogging = serializedObject.FindProperty("enableDebugLogging");
             
             // Quest-specific properties
             vrCamera = serializedObject.FindProperty("vrCamera");
-            enableVideoStreaming = serializedObject.FindProperty("enableVideoStreaming");
-            enableTouchReceiving = serializedObject.FindProperty("enableTouchReceiving");
-            enableHapticFeedback = serializedObject.FindProperty("enableHapticFeedback");
-            touchCanvas = serializedObject.FindProperty("touchCanvas");
+            touchCanvas = serializedObject.FindProperty("questTouchCanvas");
             
             // Mobile-specific properties
             videoDisplay = serializedObject.FindProperty("videoDisplay");
-            enableVideoReceiving = serializedObject.FindProperty("enableVideoReceiving");
-            enableTouchSending = serializedObject.FindProperty("enableTouchSending");
-            enableHapticReceiving = serializedObject.FindProperty("enableHapticReceiving");
-            connectionUI = serializedObject.FindProperty("connectionUI");
+            
+            // These properties don't exist in UnityVerseBridgeManager, comment them out for now
+            // enableVideoStreaming = serializedObject.FindProperty("enableVideoStreaming");
+            // enableTouchReceiving = serializedObject.FindProperty("enableTouchReceiving");
+            // enableHapticFeedback = serializedObject.FindProperty("enableHapticFeedback");
+            // enableVideoReceiving = serializedObject.FindProperty("enableVideoReceiving");
+            // enableTouchSending = serializedObject.FindProperty("enableTouchSending");
+            // enableHapticReceiving = serializedObject.FindProperty("enableHapticReceiving");
+            // connectionUI = serializedObject.FindProperty("connectionUI");
             
             DetectPlatform();
         }
@@ -202,10 +206,36 @@ namespace UnityVerseBridge.Core.Editor
             
             // Common Settings
             EditorGUILayout.LabelField("Common Settings", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(configuration);
-            EditorGUILayout.PropertyField(webRtcConfiguration);
+            EditorGUILayout.PropertyField(unityVerseConfig);
+            
+            // Legacy config - only show if it has a value
+            if (legacyConfig.objectReferenceValue != null)
+            {
+                EditorGUILayout.BeginVertical("box");
+                EditorGUILayout.HelpBox("Legacy configuration detected. Consider migrating to UnityVerseConfig.", MessageType.Warning);
+                EditorGUILayout.PropertyField(legacyConfig, new GUIContent("Legacy Config (Deprecated)"));
+                if (GUILayout.Button("Clear Legacy Config"))
+                {
+                    legacyConfig.objectReferenceValue = null;
+                }
+                EditorGUILayout.EndVertical();
+            }
+            
             EditorGUILayout.PropertyField(enableAutoConnect);
-            EditorGUILayout.PropertyField(enableDebugLogging);
+            EditorGUILayout.PropertyField(showDebugUI);
+            
+            // Add tooltip for Debug Display Mode
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.PropertyField(debugDisplayMode);
+            if (GUILayout.Button("?", GUILayout.Width(20)))
+            {
+                EditorUtility.DisplayDialog("Debug Display Mode", 
+                    "GUI: Uses Unity's OnGUI system. Works everywhere including VR headsets. Renders on top of everything.\n\n" +
+                    "UI: Uses Unity's UI Canvas system. Better for mobile/AR. Can be styled and positioned more easily.\n\n" +
+                    "Both: Shows debug logs in both systems simultaneously.", 
+                    "OK");
+            }
+            EditorGUILayout.EndHorizontal();
             
             EditorGUILayout.Space();
             
@@ -296,16 +326,16 @@ namespace UnityVerseBridge.Core.Editor
             
             // Features
             EditorGUILayout.LabelField("Features", EditorStyles.miniBoldLabel);
-            EditorGUILayout.PropertyField(enableVideoStreaming);
-            EditorGUILayout.PropertyField(enableTouchReceiving);
-            EditorGUILayout.PropertyField(enableHapticFeedback);
+            if (enableVideoStreaming != null) EditorGUILayout.PropertyField(enableVideoStreaming);
+            if (enableTouchReceiving != null) EditorGUILayout.PropertyField(enableTouchReceiving);
+            if (enableHapticFeedback != null) EditorGUILayout.PropertyField(enableHapticFeedback);
             
             // Optional
-            if (enableTouchReceiving.boolValue)
+            if (enableTouchReceiving != null && enableTouchReceiving.boolValue)
             {
                 EditorGUILayout.Space(5);
                 EditorGUILayout.LabelField("Optional", EditorStyles.miniBoldLabel);
-                EditorGUILayout.PropertyField(touchCanvas, new GUIContent("Touch Canvas"));
+                if (touchCanvas != null) EditorGUILayout.PropertyField(touchCanvas, new GUIContent("Touch Canvas"));
                 
                 if (touchCanvas.objectReferenceValue == null)
                 {
@@ -335,18 +365,21 @@ namespace UnityVerseBridge.Core.Editor
             
             // Features
             EditorGUILayout.LabelField("Features", EditorStyles.miniBoldLabel);
-            EditorGUILayout.PropertyField(enableVideoReceiving);
-            EditorGUILayout.PropertyField(enableTouchSending);
-            EditorGUILayout.PropertyField(enableHapticReceiving);
+            if (enableVideoReceiving != null) EditorGUILayout.PropertyField(enableVideoReceiving);
+            if (enableTouchSending != null) EditorGUILayout.PropertyField(enableTouchSending);
+            if (enableHapticReceiving != null) EditorGUILayout.PropertyField(enableHapticReceiving);
             
             // Optional
             EditorGUILayout.Space(5);
             EditorGUILayout.LabelField("Optional", EditorStyles.miniBoldLabel);
-            EditorGUILayout.PropertyField(connectionUI, new GUIContent("Connection UI"));
-            
-            if (connectionUI.objectReferenceValue == null)
+            if (connectionUI != null) 
             {
-                EditorGUILayout.HelpBox("Connection UI can be used for room ID input and connection status", MessageType.Info);
+                EditorGUILayout.PropertyField(connectionUI, new GUIContent("Connection UI"));
+                
+                if (connectionUI.objectReferenceValue == null)
+                {
+                    EditorGUILayout.HelpBox("Connection UI can be used for room ID input and connection status", MessageType.Info);
+                }
             }
             
             EditorGUILayout.EndVertical();
@@ -364,10 +397,10 @@ namespace UnityVerseBridge.Core.Editor
             EditorGUILayout.LabelField("Quest Settings", EditorStyles.boldLabel);
             
             EditorGUILayout.PropertyField(vrCamera, new GUIContent("VR Camera"));
-            EditorGUILayout.PropertyField(enableVideoStreaming);
-            EditorGUILayout.PropertyField(enableTouchReceiving);
-            EditorGUILayout.PropertyField(enableHapticFeedback);
-            EditorGUILayout.PropertyField(touchCanvas);
+            if (enableVideoStreaming != null) EditorGUILayout.PropertyField(enableVideoStreaming);
+            if (enableTouchReceiving != null) EditorGUILayout.PropertyField(enableTouchReceiving);
+            if (enableHapticFeedback != null) EditorGUILayout.PropertyField(enableHapticFeedback);
+            if (touchCanvas != null) EditorGUILayout.PropertyField(touchCanvas);
             
             EditorGUILayout.EndVertical();
             
@@ -376,10 +409,10 @@ namespace UnityVerseBridge.Core.Editor
             EditorGUILayout.LabelField("Mobile Settings", EditorStyles.boldLabel);
             
             EditorGUILayout.PropertyField(videoDisplay, new GUIContent("Video Display"));
-            EditorGUILayout.PropertyField(enableVideoReceiving);
-            EditorGUILayout.PropertyField(enableTouchSending);
-            EditorGUILayout.PropertyField(enableHapticReceiving);
-            EditorGUILayout.PropertyField(connectionUI);
+            if (enableVideoReceiving != null) EditorGUILayout.PropertyField(enableVideoReceiving);
+            if (enableTouchSending != null) EditorGUILayout.PropertyField(enableTouchSending);
+            if (enableHapticReceiving != null) EditorGUILayout.PropertyField(enableHapticReceiving);
+            if (connectionUI != null) EditorGUILayout.PropertyField(connectionUI);
             
             EditorGUILayout.EndVertical();
             

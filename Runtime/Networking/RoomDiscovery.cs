@@ -62,7 +62,7 @@ namespace UnityVerseBridge.Core.Networking
             // If no server URL provided, try to get from UnityVerseBridgeManager
             if (string.IsNullOrEmpty(serverUrl))
             {
-                var bridge = FindObjectOfType<UnityVerseBridgeManager>();
+                var bridge = FindFirstObjectByType<UnityVerseBridgeManager>();
                 if (bridge != null)
                 {
                     if (bridge.Configuration != null)
@@ -119,7 +119,7 @@ namespace UnityVerseBridge.Core.Networking
             OnRoomSelected?.Invoke(roomId);
             
             // Update bridge manager if available
-            var bridge = FindObjectOfType<UnityVerseBridgeManager>();
+            var bridge = FindFirstObjectByType<UnityVerseBridgeManager>();
             if (bridge != null)
             {
                 bridge.SetRoomId(roomId);

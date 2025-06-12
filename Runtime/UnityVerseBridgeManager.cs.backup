@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
@@ -16,14 +15,6 @@ namespace UnityVerseBridge.Core
     [AddComponentMenu("UnityVerseBridge/UnityVerseBridge Manager")]
     public class UnityVerseBridgeManager : MonoBehaviour
     {
-        /// <summary>
-        /// Bridge mode for UnityVerseBridge
-        /// </summary>
-        public enum BridgeMode
-        {
-            Host,    // Quest/VR - sends video, receives touch
-            Client   // Mobile - receives video, sends touch
-        }
         #region Editor Tools
         #if UNITY_EDITOR
         [ContextMenu("Remove This Bridge Instance")]
@@ -57,14 +48,10 @@ namespace UnityVerseBridge.Core
         [Header("Platform-Specific References")]
         [SerializeField] private Camera vrCamera; // Quest only
         [SerializeField] private RawImage videoDisplay; // Mobile only
-        [SerializeField] private Canvas questTouchCanvas; // Quest only - for touch visualization
-        [SerializeField] private RectTransform mobileTouchArea; // Mobile only - touch input area
-        [SerializeField] private GameObject mobileTouchFeedbackLayer; // Mobile only - visual feedback
         
         [Header("Debug")]
         [SerializeField] private bool showDebugUI = true;
         [SerializeField] private OnScreenDebugLogger.DisplayMode debugDisplayMode = OnScreenDebugLogger.DisplayMode.GUI;
-        [SerializeField] private bool enableAutoConnect = true; // Missing field for auto connection
         
         // Core components
         private WebRtcManager webRtcManager;
@@ -87,46 +74,8 @@ namespace UnityVerseBridge.Core
         public ConnectionConfig ConnectionConfig => legacyConfig; // Backward compatibility
         public bool IsConnected => webRtcManager != null && webRtcManager.IsSignalingConnected;
         public PeerRole Role => detectedRole;
-        public bool IsInitialized => isInitialized;
-        public BridgeMode Mode => detectedRole == PeerRole.Host ? BridgeMode.Host : BridgeMode.Client;
-        public WebRtcManager WebRtcManager => webRtcManager;
-        public Camera QuestStreamCamera => vrCamera;
-        public RenderTexture QuestStreamTexture => null; // This should be managed elsewhere or added as a field
-        public RawImage MobileVideoDisplay => videoDisplay;
-        public Canvas QuestTouchCanvas => questTouchCanvas;
-        public RectTransform MobileTouchArea => mobileTouchArea;
-        public GameObject MobileTouchFeedbackLayer => mobileTouchFeedbackLayer;
         
         #region Unity Lifecycle
-        
-        void Reset()
-        {
-            // Called when component is first added or reset
-            #if UNITY_EDITOR
-            // Try to find existing config based on platform
-            string configPath = "";
-            if (UnityEngine.XR.XRSettings.enabled || gameObject.name.ToLower().Contains("quest"))
-            {
-                configPath = "Assets/UnityVerseBridge/QuestConfig.asset";
-            }
-            else if (gameObject.name.ToLower().Contains("mobile"))
-            {
-                configPath = "Assets/UnityVerseBridge/MobileConfig.asset";
-            }
-            
-            if (!string.IsNullOrEmpty(configPath))
-            {
-                unityVerseConfig = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityVerseConfig>(configPath);
-                if (unityVerseConfig != null)
-                {
-                    Debug.Log($"[UnityVerseBridge] Auto-assigned configuration: {configPath}");
-                }
-            }
-            
-            // Clear legacy config reference
-            legacyConfig = null;
-            #endif
-        }
         
         void Awake()
         {
@@ -164,29 +113,6 @@ namespace UnityVerseBridge.Core
             Disconnect();
         }
         
-        void OnApplicationPause(bool pauseStatus)
-        {
-            #if UNITY_EDITOR
-            // In Editor, XR session pause might trigger application exit
-            if (pauseStatus && UnityEngine.XR.XRSettings.enabled)
-            {
-                LogDebug("Application paused with XR enabled in Editor");
-            }
-            #endif
-        }
-        
-        void OnApplicationFocus(bool hasFocus)
-        {
-            #if UNITY_EDITOR
-            // In Editor, losing focus with XR might cause issues
-            if (!hasFocus && UnityEngine.XR.XRSettings.enabled)
-            {
-                LogDebug("Application lost focus with XR enabled in Editor");
-                // Don't disconnect or stop operations - Meta XR Simulator needs this
-            }
-            #endif
-        }
-        
         #endregion
         
         #region Initialization
@@ -209,8 +135,8 @@ namespace UnityVerseBridge.Core
             if (unityVerseConfig.enableDebugLogging)
             {
                 debugLogger = gameObject.AddComponent<OnScreenDebugLogger>();
-                debugLogger.DisplayModeProperty = debugDisplayMode;
-                debugLogger.FilterKeywords = new string[] { "UnityVerse", "WebRTC", detectedRole.ToString() };
+                debugLogger.displayMode = debugDisplayMode;
+                debugLogger.filterKeywords = new string[] { "UnityVerse", "WebRTC", detectedRole.ToString() };
             }
             
             // WebRTC Manager
@@ -433,16 +359,6 @@ namespace UnityVerseBridge.Core
         private void ConfigureWebRtc()
         {
             if (webRtcManager == null) return;
-            
-            // Create WebRtcConfiguration from UnityVerseConfig
-            var webRtcConfig = ScriptableObject.CreateInstance<WebRtcConfiguration>();
-            
-            // Configure WebRTC settings
-            webRtcConfig.dataChannelLabel = "data"; // Default data channel label
-            webRtcConfig.iceServerUrls = new List<string> { "stun:stun.l.google.com:19302" };
-            
-            // Set the configuration
-            webRtcManager.SetConfiguration(webRtcConfig);
             
             // Set connection config for backward compatibility
             if (legacyConfig != null)
@@ -691,7 +607,7 @@ namespace UnityVerseBridge.Core
                 var ovrCameraRigType = System.Type.GetType("OVRCameraRig, Oculus.VR");
                 if (ovrCameraRigType != null)
                 {
-                    var rig = FindFirstObjectByType(ovrCameraRigType);
+                    var rig = FindObjectOfType(ovrCameraRigType);
                     if (rig != null)
                     {
                         Camera[] cameras = (rig as Component).GetComponentsInChildren<Camera>();
@@ -710,7 +626,7 @@ namespace UnityVerseBridge.Core
         private RawImage FindVideoDisplay()
         {
             // Look for existing video display
-            RawImage[] rawImages = FindObjectsByType<RawImage>(FindObjectsSortMode.None);
+            RawImage[] rawImages = FindObjectsOfType<RawImage>();
             foreach (var img in rawImages)
             {
                 if (img.name.ToLower().Contains("video") || img.name.ToLower().Contains("stream"))

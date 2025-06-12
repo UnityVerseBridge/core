@@ -59,12 +59,16 @@ namespace UnityVerseBridge.Core
         // Thread safety
         private ThreadSafeQueue<Action> mainThreadActions;
         private readonly object stateLock = new object();
+        private bool isApplicationQuitting = false;
 
         // --- Public Events (IWebRtcManager implementation) ---
         public event Action OnSignalingConnected;
         public event Action OnSignalingDisconnected;
+        public event Action<string> OnSignalingError; // Added for UnityVerseBridgeManager
         public event Action OnWebRtcConnected;
         public event Action OnWebRtcDisconnected;
+        public event Action OnPeerConnectionEstablished; // Added for UnityVerseBridgeManager
+        public event Action<string> OnPeerConnectionFailed; // Added for UnityVerseBridgeManager
         public event Action<string> OnDataChannelOpened;
         public event Action OnDataChannelClosed;
         public event Action<string> OnDataChannelMessageReceived;
@@ -141,14 +145,54 @@ namespace UnityVerseBridge.Core
             // Initialize thread-safe queue
             mainThreadActions = new ThreadSafeQueue<Action>(500);
             
+            // Ensure we have a configuration
+            if (configuration == null)
+            {
+                configuration = ScriptableObject.CreateInstance<WebRtcConfiguration>();
+                Debug.Log("[WebRtcManager] Created default WebRtcConfiguration");
+            }
+            
             // SignalingClient 인스턴스화는 SetupSignaling에서 처리
             if (enableMultiPeer && isOfferer)
             {
                 sharedSendStream = new MediaStream();
             }
             
-            // Start coroutine for WebRTC update (required)
-            StartCoroutine(WebRTC.Update());
+            // Delay WebRTC initialization to avoid issues in Editor
+            StartCoroutine(InitializeWebRTC());
+        }
+        
+        private IEnumerator InitializeWebRTC()
+        {
+            // Wait a frame to ensure proper initialization
+            yield return null;
+            
+            // Initialize WebRTC only if not in batch mode and not exiting
+            if (!Application.isBatchMode && !isApplicationQuitting)
+            {
+                try
+                {
+                    // Start coroutine for WebRTC update (required)
+                    StartCoroutine(WebRTC.Update());
+                    Debug.Log("[WebRtcManager] WebRTC Update coroutine started successfully");
+                    
+                    #if UNITY_EDITOR && UNITY_XR_MANAGEMENT
+                    // Check XR status in Editor
+                    if (UnityEngine.XR.XRSettings.enabled)
+                    {
+                        Debug.Log("[WebRtcManager] XR is enabled in Editor. Using Meta XR Simulator or other XR runtime.");
+                    }
+                    else
+                    {
+                        Debug.Log("[WebRtcManager] XR is disabled in Editor. Running in standard 3D mode.");
+                    }
+                    #endif
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[WebRtcManager] Failed to start WebRTC Update coroutine: {e.Message}");
+                }
+            }
         }
 
         /// <summary>
@@ -265,19 +309,28 @@ namespace UnityVerseBridge.Core
             }
         }
 
+        void OnApplicationQuit()
+        {
+            isApplicationQuitting = true;
+            Debug.Log("[WebRtcManager] Application is quitting");
+        }
+
         void OnDestroy()
         {
+            isApplicationQuitting = true;
             Debug.Log("[WebRtcManager] OnDestroy: Cleaning up...");
             Disconnect();
         }
 
         // --- Public Control Methods ---
-        public void ConnectSignaling() // 이 메서드는 이제 주로 재연결 용도로 사용될 수 있음
+        public Task ConnectSignaling() // 이 메서드는 이제 주로 재연결 용도로 사용될 수 있음
         {
             if (signalingClient == null)
             {
-                Debug.LogError("[WebRtcManager] SignalingClient not initialized.");
-                return;
+                string errorMsg = "[WebRtcManager] SignalingClient not initialized.";
+                Debug.LogError(errorMsg);
+                OnSignalingError?.Invoke("SignalingClient not initialized");
+                return Task.CompletedTask;
             }
             if (!IsSignalingConnected)
             {
@@ -286,12 +339,13 @@ namespace UnityVerseBridge.Core
                 // SignalingClient에 재연결 메서드를 만들거나, 새로 Initialize해야 할 수 있음
                 // 여기서는 경고만 표시하거나, Initialize를 다시 호출하도록 유도
                 Debug.LogWarning("Use InitializeSignaling to connect initially or implement reconnect logic in SignalingClient.");
-                // _ = signalingClient.Connect(signalingServerUrl); // ISignalingClient에 Connect가 남아있다면...
+                // return signalingClient.Connect(signalingServerUrl); // ISignalingClient에 Connect가 남아있다면...
             }
             else
             {
                 Debug.Log("[WebRtcManager] Signaling already connected.");
             }
+            return Task.CompletedTask;
         }
 
         public void StartPeerConnection()
@@ -793,9 +847,11 @@ namespace UnityVerseBridge.Core
             try
             {
                 RTCDataChannelInit options = new RTCDataChannelInit() { ordered = true };
-                dataChannel = peerConnection.CreateDataChannel(configuration.dataChannelLabel, options);
+                string channelLabel = configuration?.dataChannelLabel ?? "data";
+                dataChannel = peerConnection.CreateDataChannel(channelLabel, options);
                 _dataChannelState = RTCDataChannelState.Connecting;
                 SetupDataChannelEvents(dataChannel);
+                Debug.Log($"[WebRtcManager] Created data channel: {channelLabel}");
             }
             catch (Exception e)
             {
@@ -1236,12 +1292,16 @@ namespace UnityVerseBridge.Core
             {
                 case RTCPeerConnectionState.Connected:
                     OnWebRtcConnected?.Invoke();
+                    OnPeerConnectionEstablished?.Invoke(); // For UnityVerseBridgeManager
                     break;
                 case RTCPeerConnectionState.Disconnected:
                 case RTCPeerConnectionState.Failed:
+                    OnWebRtcDisconnected?.Invoke();
+                    OnPeerConnectionFailed?.Invoke(state.ToString()); // For UnityVerseBridgeManager
+                    // 필요하다면 여기서 PeerConnection 정리 또는 재연결 시도
+                    break;
                 case RTCPeerConnectionState.Closed:
                     OnWebRtcDisconnected?.Invoke();
-                    // 필요하다면 여기서 PeerConnection 정리 또는 재연결 시도
                     break;
             }
         }
@@ -1857,6 +1917,87 @@ namespace UnityVerseBridge.Core
             this.enableMultiPeer = enable;
             this.maxConnections = maxConnections;
             Debug.Log($"[WebRtcManager] Multi-peer mode {(enable ? "enabled" : "disabled")} with max connections: {maxConnections}");
+        }
+        
+        #endregion
+        
+        #region UnityVerseBridgeManager Compatibility Methods
+        
+        /// <summary>
+        /// Connect to signaling server with WebSocket adapter (for UnityVerseBridgeManager)
+        /// </summary>
+        public async Task ConnectToSignaling(IWebSocketClient adapter, string url)
+        {
+            try
+            {
+                signalingServerUrl = url;
+                signalingClient = new SignalingClient();
+                await signalingClient.InitializeAndConnect(adapter, url);
+                
+                // Set up event handlers
+                signalingClient.OnConnected += HandleSignalingConnected;
+                signalingClient.OnDisconnected += HandleSignalingDisconnected;
+                signalingClient.OnSignalingMessageReceived += HandleSignalingMessage;
+                
+                _isSignalingConnected = true;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[WebRtcManager] Failed to connect to signaling: {e.Message}");
+                OnSignalingError?.Invoke(e.Message);
+                throw;
+            }
+        }
+        
+        /// <summary>
+        /// Set debug mode for logging (for UnityVerseBridgeManager)
+        /// </summary>
+        public void SetDebugMode(bool enabled)
+        {
+            // Configure debug logging
+            if (enabled)
+            {
+                Debug.unityLogger.filterLogType = LogType.Log;
+            }
+        }
+        
+        /// <summary>
+        /// Set peer role (offerer/answerer) (for UnityVerseBridgeManager)
+        /// </summary>
+        public void SetPeerRole(bool isHost)
+        {
+            isOfferer = isHost;
+            SetRole(isHost);
+        }
+        
+        /// <summary>
+        /// Send message via signaling (for UnityVerseBridgeManager)
+        /// </summary>
+        public void SendSignalingMessage(object message)
+        {
+            if (signalingClient != null && signalingClient.IsConnected)
+            {
+                // Convert the object to SignalingMessageBase if possible
+                if (message is SignalingMessageBase signalingMessage)
+                {
+                    _ = signalingClient.SendMessage(signalingMessage);
+                }
+                else
+                {
+                    // For non-SignalingMessageBase objects, we need to wrap them
+                    // or use the raw WebSocket send method
+                    string jsonMessage = JsonUtility.ToJson(message);
+                    Debug.LogWarning($"[WebRtcManager] Sending raw JSON message: {jsonMessage}");
+                    // Note: This requires access to the underlying WebSocket adapter
+                    // For now, we'll just log a warning
+                    Debug.LogError("[WebRtcManager] Cannot send non-SignalingMessageBase objects directly. Please use proper message types.");
+                }
+            }
+            else
+            {
+                Debug.LogError("[WebRtcManager] Cannot send message - signaling not connected");
+                OnSignalingError?.Invoke("Signaling not connected");
+            }
         }
         
         #endregion

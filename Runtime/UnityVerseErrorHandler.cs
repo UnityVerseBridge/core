@@ -96,7 +96,7 @@ namespace UnityVerseBridge.Core
             {
                 if (instance == null)
                 {
-                    instance = FindObjectOfType<UnityVerseErrorHandler>();
+                    instance = FindFirstObjectByType<UnityVerseErrorHandler>();
                     if (instance == null)
                     {
                         GameObject go = new GameObject("UnityVerseErrorHandler");
@@ -255,7 +255,7 @@ namespace UnityVerseBridge.Core
         
         private System.Collections.IEnumerator AutoReconnect()
         {
-            UnityVerseBridgeManager bridge = FindObjectOfType<UnityVerseBridgeManager>();
+            UnityVerseBridgeManager bridge = FindFirstObjectByType<UnityVerseBridgeManager>();
             if (bridge == null) yield break;
             
             UnityVerseConfig config = bridge.Configuration;

@@ -2,6 +2,9 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 using TMPro;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 
 namespace UnityVerseBridge.Core.Utils
 {
@@ -65,6 +68,19 @@ namespace UnityVerseBridge.Core.Utils
             GUI,        // OnGUI (works everywhere including VR)
             UI,         // UI Canvas (better for mobile/AR)
             Both        // Show in both
+        }
+        
+        // Public properties for configuration
+        public DisplayMode DisplayModeProperty
+        {
+            get => displayMode;
+            set => displayMode = value;
+        }
+        
+        public string[] FilterKeywords
+        {
+            get => filterKeywords;
+            set => filterKeywords = value ?? new string[0];
         }
         
         public static OnScreenDebugLogger Instance
@@ -152,9 +168,25 @@ namespace UnityVerseBridge.Core.Utils
             }
             
             // Toggle visibility with keyboard shortcut (F12)
-            if (Input.GetKeyDown(KeyCode.F12))
+            // Try-catch to handle both Input Systems gracefully
+            try
             {
-                ToggleVisibility();
+#if ENABLE_INPUT_SYSTEM && UNITY_INPUT_SYSTEM_AVAILABLE
+                if (Keyboard.current != null && Keyboard.current.f12Key.wasPressedThisFrame)
+                {
+                    ToggleVisibility();
+                }
+#else
+                if (Input.GetKeyDown(KeyCode.F12))
+                {
+                    ToggleVisibility();
+                }
+#endif
+            }
+            catch (System.InvalidOperationException)
+            {
+                // Input system mismatch - disable key checking
+                // This happens when new Input System is active but we're trying to use legacy Input
             }
         }
         
