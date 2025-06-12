@@ -429,12 +429,20 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             float waitTime = 0f;
             const float maxWaitTime = 5f;
             
+            Debug.Log($"[MobileVideoExtension] Starting texture polling - Track Enabled: {receivedVideoTrack?.Enabled}, ReadyState: {receivedVideoTrack?.ReadyState}");
+            
             while (receivedVideoTrack != null && waitTime < maxWaitTime)
             {
                 if (receivedVideoTrack.Texture != null)
                 {
                     Debug.Log($"[MobileVideoExtension] Video texture ready via polling! Size: {receivedVideoTrack.Texture.width}x{receivedVideoTrack.Texture.height}");
                     break;
+                }
+                
+                // Log progress every second
+                if ((int)waitTime != (int)(waitTime - Time.deltaTime))
+                {
+                    Debug.Log($"[MobileVideoExtension] Waiting for texture... {waitTime:F1}s / {maxWaitTime}s");
                 }
                 
                 waitTime += Time.deltaTime;
@@ -444,6 +452,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             if (receivedVideoTrack == null || receivedVideoTrack.Texture == null)
             {
                 Debug.LogError("[MobileVideoExtension] Failed to get video texture after waiting");
+                Debug.LogError($"[MobileVideoExtension] Final state - Track: {receivedVideoTrack != null}, Texture: {receivedVideoTrack?.Texture != null}, ReadyState: {receivedVideoTrack?.ReadyState}");
                 yield break;
             }
             

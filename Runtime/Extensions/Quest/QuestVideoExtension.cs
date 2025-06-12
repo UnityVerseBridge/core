@@ -284,9 +284,13 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
                 // Create video stream track
                 videoStreamTrack = new VideoStreamTrack(renderTexture);
+                Debug.Log($"[QuestVideoExtension] Created VideoStreamTrack - Enabled: {videoStreamTrack.Enabled}, ID: {videoStreamTrack.Id}");
                 
                 // Store the track for later use when peer connection is ready
-                if (webRtcManager.GetPeerConnectionState() == Unity.WebRTC.RTCPeerConnectionState.Closed)
+                var peerState = webRtcManager.GetPeerConnectionState();
+                Debug.Log($"[QuestVideoExtension] Current PeerConnection state: {peerState}");
+                
+                if (peerState == Unity.WebRTC.RTCPeerConnectionState.Closed || peerState == Unity.WebRTC.RTCPeerConnectionState.New)
                 {
                     Debug.Log("[QuestVideoExtension] PeerConnection not ready yet, storing video track for later");
                     // Subscribe to WebRTC connected event to add track when ready
@@ -355,6 +359,9 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         {
             var wait = new WaitForEndOfFrame();
             float lastQualityCheck = 0f;
+            int frameCount = 0;
+            
+            Debug.Log($"[QuestVideoExtension] Starting capture - Camera: {streamCamera?.name}, RT: {renderTexture}");
             
             while (isStreaming)
             {
@@ -371,6 +378,17 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                     
                     // Restore target
                     streamCamera.targetTexture = previousTarget;
+                    
+                    // Log periodically
+                    if (frameCount % 60 == 0)
+                    {
+                        Debug.Log($"[QuestVideoExtension] Capturing frame {frameCount}, VideoTrack enabled: {videoStreamTrack?.Enabled}");
+                    }
+                    frameCount++;
+                }
+                else
+                {
+                    Debug.LogWarning($"[QuestVideoExtension] Missing capture components - Camera: {streamCamera != null}, RT: {renderTexture != null}");
                 }
 
                 // Adaptive quality adjustment

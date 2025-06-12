@@ -583,8 +583,21 @@ namespace UnityVerseBridge.Core
 
             Debug.Log($"[WebRtcManager] Adding video track: {videoTrack.Id}");
             
+            // Ensure track is enabled
+            videoTrack.Enabled = true;
+            
             // Log current state before adding track
             Debug.Log($"[WebRtcManager] Current state before adding video track - ConnectionState: {peerConnection.ConnectionState}, SignalingState: {peerConnection.SignalingState}");
+            Debug.Log($"[WebRtcManager] Video track info - Enabled: {videoTrack.Enabled}, ReadyState: {videoTrack.ReadyState}");
+            
+            if (videoTrack.Texture != null)
+            {
+                Debug.Log($"[WebRtcManager] Video track texture: {videoTrack.Texture.width}x{videoTrack.Texture.height}, Format: {videoTrack.Texture.graphicsFormat}");
+            }
+            else
+            {
+                Debug.LogWarning("[WebRtcManager] Video track texture is null!");
+            }
             
             RTCRtpSender sender = peerConnection.AddTrack(videoTrack);
 
@@ -596,6 +609,10 @@ namespace UnityVerseBridge.Core
             {
                 trackSenders[videoTrack] = sender; // 트랙과 sender 매핑 저장
                 Debug.Log("[WebRtcManager] Video track added successfully to peer connection. Renegotiation will be triggered if connection is established.");
+                
+                // Log sender info
+                var parameters = sender.GetParameters();
+                Debug.Log($"[WebRtcManager] Sender parameters - Encodings count: {parameters.encodings?.Length ?? 0}");
                 
                 // Log if we're in a state that requires renegotiation
                 if (peerConnection.ConnectionState == RTCPeerConnectionState.Connected)
