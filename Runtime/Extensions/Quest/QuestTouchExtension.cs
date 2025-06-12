@@ -78,12 +78,12 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 }
                 else
                 {
-                    Debug.Log("[QuestTouchExtension] Found UnityVerseBridgeManager in scene.");
+                    // Debug.Log("[QuestTouchExtension] Found UnityVerseBridgeManager in scene.");
                 }
             }
             else
             {
-                Debug.Log("[QuestTouchExtension] Found UnityVerseBridgeManager in parent hierarchy.");
+                // Debug.Log("[QuestTouchExtension] Found UnityVerseBridgeManager in parent hierarchy.");
             }
         }
 
@@ -97,7 +97,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             {
                 touchCanvas = bridgeManager.QuestTouchCanvas;
                 createDefaultCanvas = false; // Don't create if provided
-                Debug.Log("[QuestTouchExtension] Using Touch Canvas from UnityVerseBridgeManager");
+                // Debug.Log("[QuestTouchExtension] Using Touch Canvas from UnityVerseBridgeManager");
             }
             
             // Setup canvas
@@ -159,7 +159,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             webRtcManager.OnMultiPeerDataChannelMessageReceived += HandleMultiPeerDataChannelMessage;
             webRtcManager.OnPeerDisconnected += HandlePeerDisconnected;
             
-            Debug.Log("[QuestTouchExtension] Initialized");
+            // Debug.Log("[QuestTouchExtension] Initialized");
         }
 
         void OnDestroy()
@@ -351,8 +351,8 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                     {
                         AnimateTouchBegan(touchInfo);
                     }
-                    if (debugMode)
-                        Debug.Log($"[QuestTouchExtension] Touch began from {peerId} at ({touchData.positionX:F3}, {touchData.positionY:F3})");
+                    // if (debugMode)
+                    //     Debug.Log($"[QuestTouchExtension] Touch began from {peerId} at ({touchData.positionX:F3}, {touchData.positionY:F3})");
                     break;
                     
                 case UnityVerseBridge.Core.DataChannel.Data.TouchPhase.Moved:

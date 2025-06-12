@@ -34,7 +34,7 @@ namespace UnityVerseBridge.Core
         public VideoQualityPreset videoQuality = VideoQualityPreset.HD720p;
         
         [Tooltip("Custom resolution (when videoQuality is Custom)")]
-        public Vector2Int customResolution = new Vector2Int(1280, 720);
+        public Vector2Int customResolution = new Vector2Int(640, 360);
         
         [Tooltip("Target framerate for video streaming")]
         [Range(15, 60)]

@@ -40,6 +40,8 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         void Awake()
         {
+            Debug.Log("[MobileVideoExtension] Awake called");
+            
             // Try to find manager in parent first (for child components)
             bridgeManager = GetComponentInParent<UnityVerseBridgeManager>();
             
@@ -48,6 +50,15 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             {
                 bridgeManager = FindFirstObjectByType<UnityVerseBridgeManager>();
             }
+            
+            if (bridgeManager == null)
+            {
+                Debug.LogError("[MobileVideoExtension] UnityVerseBridgeManager not found in parent or scene!");
+                enabled = false;
+                return;
+            }
+            
+            Debug.Log($"[MobileVideoExtension] Found UnityVerseBridgeManager: {bridgeManager.name}");
             
             if (bridgeManager == null)
             {
@@ -127,32 +138,37 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             {
                 Debug.Log("[MobileVideoExtension] Creating RenderTexture for receiving video...");
                 
-                // Try different formats for compatibility
-                RenderTextureFormat format = RenderTextureFormat.BGRA32;
-                
-                #if UNITY_IOS
-                // iOS might prefer different format
-                if (!SystemInfo.SupportsRenderTextureFormat(format))
+                // Try multiple formats for better compatibility
+                RenderTextureFormat[] formats = new RenderTextureFormat[] 
                 {
-                    format = RenderTextureFormat.ARGB32;
-                    Debug.Log($"[MobileVideoExtension] iOS: Using ARGB32 format instead of BGRA32");
-                }
-                #elif UNITY_ANDROID
-                // Android compatibility check
-                if (!SystemInfo.SupportsRenderTextureFormat(format))
-                {
-                    format = RenderTextureFormat.RGB111110Float;
-                    Debug.Log($"[MobileVideoExtension] Android: Using RGB111110Float format");
-                }
-                #endif
+                    RenderTextureFormat.BGRA32,
+                    RenderTextureFormat.ARGB32,
+                    RenderTextureFormat.RGB565,
+                    RenderTextureFormat.Default
+                };
                 
-                receiveTexture = new RenderTexture(textureWidth, textureHeight, 0, format, RenderTextureReadWrite.Default);
+                RenderTextureFormat selectedFormat = RenderTextureFormat.Default;
+                
+                foreach (var format in formats)
+                {
+                    if (SystemInfo.SupportsRenderTextureFormat(format))
+                    {
+                        selectedFormat = format;
+                        Debug.Log($"[MobileVideoExtension] Selected texture format: {format}");
+                        break;
+                    }
+                }
+                
+                // Create with depth buffer 0 for better mobile compatibility
+                receiveTexture = new RenderTexture(textureWidth, textureHeight, 0, selectedFormat);
                 receiveTexture.name = "MobileReceiveTexture";
                 receiveTexture.useMipMap = false;
                 receiveTexture.autoGenerateMips = false;
+                receiveTexture.filterMode = FilterMode.Bilinear;
+                receiveTexture.wrapMode = TextureWrapMode.Clamp;
                 receiveTexture.Create();
                 
-                Debug.Log($"[MobileVideoExtension] RenderTexture created - Format: {format}, Size: {textureWidth}x{textureHeight}");
+                Debug.Log($"[MobileVideoExtension] RenderTexture created - Format: {selectedFormat}, Size: {textureWidth}x{textureHeight}, IsCreated: {receiveTexture.IsCreated()}");
             }
 
             // 비디오 트랙 수신 이벤트 구독
@@ -238,65 +254,99 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                 Debug.Log("[MobileVideoExtension] Enabled video track");
             }
             
-            // Check decoder initialization status
+            // 비디오 트랙 정보 로그
+            Debug.Log($"[MobileVideoExtension] Video track setup - ID: {videoTrack.Id}, Enabled: {videoTrack.Enabled}, ReadyState: {videoTrack.ReadyState}");
+            
+            // 모바일 플랫폼에서 추가 디코더 초기화 시도
+            #if UNITY_ANDROID || UNITY_IOS
+            StartCoroutine(ForceDecoderInitialization());
+            #else
             StartCoroutine(WaitForDecoder());
+            #endif
+        }
+        
+        private IEnumerator ForceDecoderInitialization()
+        {
+            Debug.Log("[MobileVideoExtension] Starting forced decoder initialization for mobile platform");
+            
+            // 모바일에서는 디코더 초기화를 위해 트랙을 재활성화
+            receivedVideoTrack.Enabled = false;
+            yield return null;
+            receivedVideoTrack.Enabled = true;
+            
+            Debug.Log("[MobileVideoExtension] Toggled track enable state to force decoder init");
+            
+            // 이후 일반 디코더 대기 프로세스 진행
+            yield return StartCoroutine(WaitForDecoder());
         }
         
         private IEnumerator WaitForDecoder()
         {
             Debug.Log("[MobileVideoExtension] Waiting for decoder to be ready...");
             
-            // Increase wait time for mobile devices
-            float initialWait = 1.0f; // Increased from 0.5f
-            yield return new WaitForSeconds(initialWait);
+            // Force enable the track immediately
+            if (receivedVideoTrack != null && !receivedVideoTrack.Enabled)
+            {
+                receivedVideoTrack.Enabled = true;
+                Debug.Log("[MobileVideoExtension] Forced video track to be enabled");
+            }
             
-            // Check if track is ready by checking ReadyState
+            // Try multiple decoder initialization attempts
+            int maxAttempts = 5;
+            float waitBetweenAttempts = 0.5f;
+            
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                Debug.Log($"[MobileVideoExtension] Decoder initialization attempt {attempt + 1}/{maxAttempts}");
+                
+                // Wait before checking
+                yield return new WaitForSeconds(waitBetweenAttempts);
+                
+                // Force a frame update to trigger decoder
+                if (receivedVideoTrack != null)
+                {
+                    // Try to access the texture to force initialization
+                    var testTexture = receivedVideoTrack.Texture;
+                    if (testTexture != null)
+                    {
+                        Debug.Log($"[MobileVideoExtension] Decoder initialized on attempt {attempt + 1}! Texture: {testTexture.width}x{testTexture.height}");
+                        break;
+                    }
+                }
+                
+                // Increase wait time for next attempt
+                waitBetweenAttempts = Mathf.Min(waitBetweenAttempts * 1.5f, 2.0f);
+            }
+            
+            // Check if track is ready
             if (receivedVideoTrack != null && receivedVideoTrack.ReadyState == TrackState.Live)
             {
                 Debug.Log($"[MobileVideoExtension] Track is live and ready - Enabled: {receivedVideoTrack.Enabled}");
                 
-                // Ensure track is enabled
-                if (!receivedVideoTrack.Enabled)
-                {
-                    receivedVideoTrack.Enabled = true;
-                    Debug.Log("[MobileVideoExtension] Enabled video track");
-                }
-                
-                // Primary method: Use OnVideoReceived event (recommended)
+                // Subscribe to OnVideoReceived event
                 receivedVideoTrack.OnVideoReceived += OnVideoFrameReceived;
                 Debug.Log("[MobileVideoExtension] Subscribed to OnVideoReceived event");
                 
                 isReceiving = true;
                 
-                // Also start polling as a backup
+                // Start polling coroutine as primary method since OnVideoReceived might not fire
                 if (updateCoroutine != null)
                 {
                     StopCoroutine(updateCoroutine);
                 }
                 updateCoroutine = StartCoroutine(UpdateVideoTexture());
-                Debug.Log("[MobileVideoExtension] Started polling coroutine as backup");
+                Debug.Log("[MobileVideoExtension] Started texture update coroutine");
             }
             else
             {
-                Debug.LogError($"[MobileVideoExtension] Track not ready after {initialWait}s wait. State: {receivedVideoTrack?.ReadyState}, Track exists: {receivedVideoTrack != null}");
+                Debug.LogError($"[MobileVideoExtension] Track initialization failed after {maxAttempts} attempts. State: {receivedVideoTrack?.ReadyState}");
                 
-                // Retry with longer wait
+                // Try one more time with forced polling
                 if (receivedVideoTrack != null)
                 {
-                    Debug.Log("[MobileVideoExtension] Retrying decoder wait...");
-                    yield return new WaitForSeconds(2.0f);
-                    
-                    if (receivedVideoTrack.ReadyState == TrackState.Live)
-                    {
-                        Debug.Log("[MobileVideoExtension] Track became ready after extended wait");
-                        receivedVideoTrack.OnVideoReceived += OnVideoFrameReceived;
-                        isReceiving = true;
-                        updateCoroutine = StartCoroutine(UpdateVideoTexture());
-                    }
-                    else
-                    {
-                        Debug.LogError("[MobileVideoExtension] Track still not ready after extended wait");
-                    }
+                    Debug.LogWarning("[MobileVideoExtension] Forcing polling mode despite track state");
+                    isReceiving = true;
+                    updateCoroutine = StartCoroutine(UpdateVideoTexture());
                 }
             }
         }
@@ -420,73 +470,123 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
         /// </summary>
         private IEnumerator UpdateVideoTexture()
         {
-            Debug.Log("[MobileVideoExtension] Starting video texture update coroutine (fallback)...");
+            Debug.Log("[MobileVideoExtension] Starting video texture update coroutine...");
             
-            // 초기 대기: 디코더 초기화를 위한 시간
-            yield return new WaitForSeconds(0.5f);
+            // 초기 대기를 짧게 설정
+            yield return new WaitForSeconds(0.2f);
             
-            // 최대 5초 동안 텍스처 생성을 기다림
+            // 텍스처 폴링 시도
             float waitTime = 0f;
-            const float maxWaitTime = 5f;
+            const float maxWaitTime = 10f; // 최대 대기 시간 증가
+            int frameCheckInterval = 30; // 0.5초마다 체크 (60fps 기준)
+            int frameCounter = 0;
             
             Debug.Log($"[MobileVideoExtension] Starting texture polling - Track Enabled: {receivedVideoTrack?.Enabled}, ReadyState: {receivedVideoTrack?.ReadyState}");
             
             while (receivedVideoTrack != null && waitTime < maxWaitTime)
             {
-                if (receivedVideoTrack.Texture != null)
+                // 매 프레임마다 텍스처 체크
+                var texture = receivedVideoTrack.Texture;
+                if (texture != null)
                 {
-                    Debug.Log($"[MobileVideoExtension] Video texture ready via polling! Size: {receivedVideoTrack.Texture.width}x{receivedVideoTrack.Texture.height}");
+                    Debug.Log($"[MobileVideoExtension] Video texture detected! Size: {texture.width}x{texture.height}, Format: {texture.graphicsFormat}");
                     break;
                 }
                 
-                // Log progress every second
-                if ((int)waitTime != (int)(waitTime - Time.deltaTime))
+                // 주기적으로 트랙 상태 강제 업데이트
+                if (frameCounter % frameCheckInterval == 0)
                 {
-                    Debug.Log($"[MobileVideoExtension] Waiting for texture... {waitTime:F1}s / {maxWaitTime}s");
+                    // 트랙 활성화 재시도
+                    if (!receivedVideoTrack.Enabled)
+                    {
+                        receivedVideoTrack.Enabled = true;
+                        Debug.Log("[MobileVideoExtension] Re-enabled video track");
+                    }
+                    
+                    Debug.Log($"[MobileVideoExtension] Still waiting for texture... {waitTime:F1}s / {maxWaitTime}s - ReadyState: {receivedVideoTrack.ReadyState}");
                 }
                 
+                frameCounter++;
                 waitTime += Time.deltaTime;
                 yield return null;
             }
             
             if (receivedVideoTrack == null || receivedVideoTrack.Texture == null)
             {
-                Debug.LogError("[MobileVideoExtension] Failed to get video texture after waiting");
-                Debug.LogError($"[MobileVideoExtension] Final state - Track: {receivedVideoTrack != null}, Texture: {receivedVideoTrack?.Texture != null}, ReadyState: {receivedVideoTrack?.ReadyState}");
-                yield break;
+                Debug.LogError("[MobileVideoExtension] Failed to get video texture after extended wait");
+                Debug.LogError($"[MobileVideoExtension] Final state - Track exists: {receivedVideoTrack != null}, Texture exists: {receivedVideoTrack?.Texture != null}, ReadyState: {receivedVideoTrack?.ReadyState}");
+                
+                // 마지막 시도: 직접 텍스처 생성 시도
+                if (receivedVideoTrack != null && receivedVideoTrack.ReadyState == TrackState.Live)
+                {
+                    Debug.LogWarning("[MobileVideoExtension] Attempting forced texture update despite null texture");
+                    // 계속 진행하여 폴링 루프 시작
+                }
+                else
+                {
+                    yield break;
+                }
             }
             
             // 폴링 기반 텍스처 업데이트 루프
+            bool textureFound = false;
             while (isReceiving && receivedVideoTrack != null && receivedVideoTrack.ReadyState == TrackState.Live)
             {
-                if (receivedVideoTrack.Texture != null)
+                var currentTexture = receivedVideoTrack.Texture;
+                
+                if (currentTexture != null)
                 {
+                    if (!textureFound)
+                    {
+                        textureFound = true;
+                        Debug.Log($"[MobileVideoExtension] First texture frame received! Size: {currentTexture.width}x{currentTexture.height}");
+                    }
+                    
                     // Log texture info periodically (every 60 frames) - only in debug mode
                     if (debugMode && Time.frameCount % 60 == 0)
                     {
-                        var tex = receivedVideoTrack.Texture;
-                        Debug.Log($"[MobileVideoExtension] Polling: Texture available - {tex.width}x{tex.height}, " +
-                            $"Format: {tex.graphicsFormat}, Type: {tex.GetType().Name}");
+                        Debug.Log($"[MobileVideoExtension] Polling: Texture - {currentTexture.width}x{currentTexture.height}, " +
+                            $"Format: {currentTexture.graphicsFormat}, Type: {currentTexture.GetType().Name}");
                     }
                     
-                    if (receiveTexture != null)
+                    try
                     {
-                        // Ensure RenderTexture is created
-                        if (!receiveTexture.IsCreated())
+                        if (receiveTexture != null)
                         {
-                            receiveTexture.Create();
+                            // Ensure RenderTexture is created
+                            if (!receiveTexture.IsCreated())
+                            {
+                                receiveTexture.Create();
+                                Debug.Log("[MobileVideoExtension] Recreated RenderTexture during update");
+                            }
+                            
+                            // Graphics.Blit: GPU에서 텍스처를 효율적으로 복사
+                            Graphics.Blit(currentTexture, receiveTexture);
+                            displayImage.texture = receiveTexture;
+                        }
+                        else
+                        {
+                            // 직접 할당
+                            displayImage.texture = currentTexture;
                         }
                         
-                        // Graphics.Blit: GPU에서 텍스처를 효율적으로 복사
-                        Graphics.Blit(receivedVideoTrack.Texture, receiveTexture);
-                        displayImage.texture = receiveTexture;
+                        // UI 강제 업데이트
+                        if (displayImage != null)
+                        {
+                            displayImage.SetMaterialDirty();
+                            displayImage.SetVerticesDirty();
+                        }
                     }
-                    else
+                    catch (System.Exception e)
                     {
-                        displayImage.texture = receivedVideoTrack.Texture;
+                        Debug.LogError($"[MobileVideoExtension] Error updating display: {e.Message}");
                     }
                     
                     UpdateDebugInfo();
+                }
+                else if (Time.frameCount % 120 == 0) // 디버그 로그 빈도 감소
+                {
+                    Debug.LogWarning($"[MobileVideoExtension] Texture is null in update loop - Track state: {receivedVideoTrack.ReadyState}");
                 }
                 
                 yield return new WaitForEndOfFrame();

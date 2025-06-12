@@ -23,7 +23,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         [SerializeField] private RenderTexture renderTexture;
         
         [Header("Stream Settings")]
-        [SerializeField] private Vector2Int streamResolution = new Vector2Int(1280, 720);
+        [SerializeField] private Vector2Int streamResolution = new Vector2Int(640, 360);
         [SerializeField] private bool autoCreateRenderTexture = true;
         
         [Header("Quest MR Settings")]
@@ -38,6 +38,9 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         [Header("Debug")]
         [SerializeField] private bool debugMode = false;
         
+        // Debug mode from UnityVerseBridgeManager
+        private bool IsDebugEnabled => debugMode || (bridgeManager != null && bridgeManager.ShowDebugUI);
+        
         private UnityVerseBridgeManager bridgeManager;
         private WebRtcManager webRtcManager;
         private VideoStreamTrack videoStreamTrack;
@@ -51,6 +54,8 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void Awake()
         {
+            Debug.Log("[QuestVideoExtension] Awake called");
+            
             // Try to find manager in parent first, then in the scene
             bridgeManager = GetComponentInParent<UnityVerseBridgeManager>();
             if (bridgeManager == null)
@@ -64,10 +69,14 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 enabled = false;
                 return;
             }
+            
+            Debug.Log($"[QuestVideoExtension] Found UnityVerseBridgeManager: {bridgeManager.name}");
         }
 
         void Start()
         {
+            Debug.Log("[QuestVideoExtension] Start called");
+            
             // Wait for initialization - check mode after initialization
             StartCoroutine(WaitForInitialization());
 
@@ -75,7 +84,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             if (streamCamera == null && bridgeManager.QuestStreamCamera != null)
             {
                 streamCamera = bridgeManager.QuestStreamCamera;
-                Debug.Log("[QuestVideoExtension] Using camera from UnityVerseBridgeManager");
+                if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Using camera from UnityVerseBridgeManager");
             }
             
             // Find Quest camera if still not assigned
@@ -86,7 +95,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 if (cameraRig != null)
                 {
                     streamCamera = cameraRig.centerEyeAnchor.GetComponent<Camera>();
-                    Debug.Log("[QuestVideoExtension] Found OVR camera");
+                    if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Found OVR camera");
                 }
 #endif
                 
@@ -102,7 +111,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                         streamCamera = cameraObj.AddComponent<Camera>();
                         streamCamera.tag = "MainCamera";
                         cameraObj.transform.position = new Vector3(0, 1.6f, 0);
-                        Debug.Log("[QuestVideoExtension] Created editor camera for streaming");
+                        if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Created editor camera for streaming");
                         
                         // Configure camera for VR-like view
                         streamCamera.fieldOfView = 90f;
@@ -120,7 +129,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                                 if (controllerType != null)
                                 {
                                     cameraObj.AddComponent(controllerType);
-                                    Debug.Log("[QuestVideoExtension] Added SimpleEditorCameraController for Editor testing");
+                                    if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Added SimpleEditorCameraController for Editor testing");
                                     break;
                                 }
                             }
@@ -137,18 +146,18 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             // Emergency fallback for Quest builds
             if (streamCamera == null && Application.platform == RuntimePlatform.Android)
             {
-                Debug.LogWarning("[QuestVideoExtension] No camera found! Attempting emergency fallback...");
+                if (IsDebugEnabled) Debug.LogWarning("[QuestVideoExtension] No camera found! Attempting emergency fallback...");
                 
                 // Try to find any active camera
-                Camera[] allCameras = FindObjectsOfType<Camera>();
-                Debug.Log($"[QuestVideoExtension] Found {allCameras.Length} cameras in scene");
+                Camera[] allCameras = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+                if (IsDebugEnabled) Debug.Log($"[QuestVideoExtension] Found {allCameras.Length} cameras in scene");
                 
                 foreach (var cam in allCameras)
                 {
                     if (cam.enabled && cam.gameObject.activeInHierarchy)
                     {
                         streamCamera = cam;
-                        Debug.LogWarning($"[QuestVideoExtension] Using emergency fallback camera: {cam.name} (tag: {cam.tag})");
+                        if (IsDebugEnabled) Debug.LogWarning($"[QuestVideoExtension] Using emergency fallback camera: {cam.name} (tag: {cam.tag})");
                         break;
                     }
                 }
@@ -170,7 +179,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             {
                 renderTexture = bridgeManager.QuestStreamTexture;
                 autoCreateRenderTexture = false; // Don't auto-create if provided
-                Debug.Log("[QuestVideoExtension] Using RenderTexture from UnityVerseBridgeManager");
+                if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Using RenderTexture from UnityVerseBridgeManager");
             }
 
             SetupRenderTexture();
@@ -179,16 +188,26 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         private System.Collections.IEnumerator WaitForInitialization()
         {
+            Debug.Log("[QuestVideoExtension] WaitForInitialization started");
+            
             // Wait for UnityVerseBridgeManager to be initialized
+            int waitFrames = 0;
             while (!bridgeManager.IsInitialized)
             {
+                if (waitFrames % 60 == 0) // Log every second
+                {
+                    Debug.Log($"[QuestVideoExtension] Waiting for initialization... (frame {waitFrames})");
+                }
+                waitFrames++;
                 yield return null;
             }
+            
+            Debug.Log($"[QuestVideoExtension] Manager initialized. Mode: {bridgeManager.Mode}, Role: {bridgeManager.Role}");
             
             // Check mode after initialization
             if (bridgeManager.Mode != UnityVerseBridgeManager.BridgeMode.Host)
             {
-                Debug.LogWarning("[QuestVideoExtension] This component only works in Host mode. Disabling...");
+                Debug.LogWarning($"[QuestVideoExtension] This component only works in Host mode. Current mode: {bridgeManager.Mode}. Disabling...");
                 enabled = false;
                 yield break;
             }
@@ -210,7 +229,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             webRtcManager.OnPeerConnected += HandlePeerConnected;
             webRtcManager.OnPeerDisconnected += HandlePeerDisconnected;
             
-            Debug.Log("[QuestVideoExtension] Initialized");
+            Debug.Log("[QuestVideoExtension] Initialized successfully");
         }
 
         void OnDestroy()
@@ -240,7 +259,27 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 renderTexture = new RenderTexture(streamResolution.x, streamResolution.y, 24, RenderTextureFormat.BGRA32);
                 renderTexture.name = "QuestStreamTexture";
                 renderTexture.Create();
-                Debug.Log($"[QuestVideoExtension] Created RenderTexture: {streamResolution.x}x{streamResolution.y}");
+                
+                if (IsDebugEnabled)
+                {
+                    Debug.Log($"[QuestVideoExtension] Created RenderTexture: {streamResolution.x}x{streamResolution.y}, Format: {renderTexture.format}");
+                    
+                    // Log VR camera info
+                    if (streamCamera != null)
+                    {
+                        Debug.Log($"[QuestVideoExtension] Stream Camera: {streamCamera.name}");
+                        Debug.Log($"[QuestVideoExtension] Camera Target Display: {streamCamera.targetDisplay}");
+                        Debug.Log($"[QuestVideoExtension] Camera Target Texture: {streamCamera.targetTexture}");
+                        Debug.Log($"[QuestVideoExtension] Camera Pixel Rect: {streamCamera.pixelRect}");
+                        
+                        // Check if this is a VR camera
+                        if (streamCamera.stereoEnabled)
+                        {
+                            Debug.Log($"[QuestVideoExtension] VR Stereo Mode: {streamCamera.stereoTargetEye}");
+                            Debug.Log($"[QuestVideoExtension] Stereo Separation: {streamCamera.stereoSeparation}");
+                        }
+                    }
+                }
             }
         }
 
@@ -256,13 +295,13 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 if (OVRNamespace.OVRManager.instance != null)
                 {
                     OVRNamespace.OVRManager.instance.isInsightPassthroughEnabled = true;
-                    Debug.Log("[QuestVideoExtension] Passthrough enabled");
+                    if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Passthrough enabled");
                 }
             }
 #elif UNITY_EDITOR
             if (capturePassthrough)
             {
-                Debug.Log("[QuestVideoExtension] Passthrough not available in Unity Editor");
+                if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Passthrough not available in Unity Editor");
             }
 #endif
         }
@@ -309,14 +348,20 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 // Create video stream track
                 videoStreamTrack = new VideoStreamTrack(renderTexture);
                 Debug.Log($"[QuestVideoExtension] Created VideoStreamTrack - Enabled: {videoStreamTrack.Enabled}, ID: {videoStreamTrack.Id}");
+                if (IsDebugEnabled)
+                {
+                    Debug.Log($"[QuestVideoExtension] RenderTexture Resolution: {renderTexture.width}x{renderTexture.height}");
+                    Debug.Log($"[QuestVideoExtension] RenderTexture Format: {renderTexture.format}");
+                    Debug.Log($"[QuestVideoExtension] RenderTexture Depth: {renderTexture.depth}");
+                }
                 
                 // Store the track for later use when peer connection is ready
                 var peerState = webRtcManager.GetPeerConnectionState();
-                Debug.Log($"[QuestVideoExtension] Current PeerConnection state: {peerState}");
+                if (IsDebugEnabled) Debug.Log($"[QuestVideoExtension] Current PeerConnection state: {peerState}");
                 
                 if (peerState == Unity.WebRTC.RTCPeerConnectionState.Closed || peerState == Unity.WebRTC.RTCPeerConnectionState.New)
                 {
-                    Debug.Log("[QuestVideoExtension] PeerConnection not ready yet, storing video track for later");
+                    if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] PeerConnection not ready yet, storing video track for later");
                     // Subscribe to WebRTC connected event to add track when ready
                     webRtcManager.OnWebRtcConnected += OnWebRtcConnectedAddTrack;
                 }
@@ -324,7 +369,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 {
                     // Add track immediately if peer connection exists
                     webRtcManager.AddVideoTrack(videoStreamTrack);
-                    Debug.Log("[QuestVideoExtension] Added video track to existing PeerConnection");
+                    if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Added video track to existing PeerConnection");
                 }
                 
                 isStreaming = true;
@@ -344,7 +389,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         {
             if (videoStreamTrack != null && webRtcManager != null)
             {
-                Debug.Log("[QuestVideoExtension] WebRTC connected, will add video track after a short delay");
+                if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] WebRTC connected, will add video track after a short delay");
                 StartCoroutine(AddVideoTrackWithDelay());
                 // Unsubscribe after adding
                 webRtcManager.OnWebRtcConnected -= OnWebRtcConnectedAddTrack;
@@ -358,7 +403,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             
             if (videoStreamTrack != null && webRtcManager != null)
             {
-                Debug.Log("[QuestVideoExtension] Adding video track to PeerConnection now");
+                if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Adding video track to PeerConnection now");
                 webRtcManager.AddVideoTrack(videoStreamTrack);
             }
         }
@@ -376,7 +421,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 videoStreamTrack = null;
             }
 
-            Debug.Log("[QuestVideoExtension] Streaming stopped");
+            if (IsDebugEnabled) Debug.Log("[QuestVideoExtension] Streaming stopped");
         }
 
         private IEnumerator CaptureFrames()
@@ -385,7 +430,16 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             float lastQualityCheck = 0f;
             int frameCount = 0;
             
-            Debug.Log($"[QuestVideoExtension] Starting capture - Camera: {streamCamera?.name}, RT: {renderTexture}");
+            if (IsDebugEnabled)
+            {
+                Debug.Log($"[QuestVideoExtension] Starting capture - Camera: {streamCamera?.name}, RT: {renderTexture}");
+                if (streamCamera != null)
+                {
+                    Debug.Log($"[QuestVideoExtension] Camera Resolution: {streamCamera.pixelWidth}x{streamCamera.pixelHeight}");
+                    Debug.Log($"[QuestVideoExtension] Camera FOV: {streamCamera.fieldOfView}");
+                    Debug.Log($"[QuestVideoExtension] Camera Near/Far: {streamCamera.nearClipPlane}/{streamCamera.farClipPlane}");
+                }
+            }
             
             while (isStreaming)
             {
@@ -403,16 +457,23 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                     // Restore target
                     streamCamera.targetTexture = previousTarget;
                     
-                    // Log periodically
-                    if (frameCount % 60 == 0)
+                    // Log periodically when debug is enabled
+                    if (IsDebugEnabled && frameCount % 60 == 0)
                     {
                         Debug.Log($"[QuestVideoExtension] Capturing frame {frameCount}, VideoTrack enabled: {videoStreamTrack?.Enabled}");
+                        // Log texture scaling info
+                        if (streamCamera != null && renderTexture != null)
+                        {
+                            float cameraAspect = (float)streamCamera.pixelWidth / streamCamera.pixelHeight;
+                            float textureAspect = (float)renderTexture.width / renderTexture.height;
+                            Debug.Log($"[QuestVideoExtension] Camera Aspect: {cameraAspect:F2}, Texture Aspect: {textureAspect:F2}");
+                        }
                     }
                     frameCount++;
                 }
                 else
                 {
-                    Debug.LogWarning($"[QuestVideoExtension] Missing capture components - Camera: {streamCamera != null}, RT: {renderTexture != null}");
+                    if (IsDebugEnabled) Debug.LogWarning($"[QuestVideoExtension] Missing capture components - Camera: {streamCamera != null}, RT: {renderTexture != null}");
                 }
 
                 // Adaptive quality adjustment
@@ -427,7 +488,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         private void HandlePeerConnected(string peerId)
         {
             currentPeerCount = webRtcManager.ActiveConnectionsCount;
-            Debug.Log($"[QuestVideoExtension] Peer connected: {peerId}, Total peers: {currentPeerCount}");
+            if (IsDebugEnabled) Debug.Log($"[QuestVideoExtension] Peer connected: {peerId}, Total peers: {currentPeerCount}");
             
             if (adjustQualityByPeerCount)
             {
@@ -438,7 +499,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         private void HandlePeerDisconnected(string peerId)
         {
             currentPeerCount = webRtcManager.ActiveConnectionsCount;
-            Debug.Log($"[QuestVideoExtension] Peer disconnected: {peerId}, Total peers: {currentPeerCount}");
+            if (IsDebugEnabled) Debug.Log($"[QuestVideoExtension] Peer disconnected: {peerId}, Total peers: {currentPeerCount}");
             
             if (adjustQualityByPeerCount)
             {
@@ -468,7 +529,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             // Recreate render texture if resolution changed
             if (newResolution.x != renderTexture.width || newResolution.y != renderTexture.height)
             {
-                Debug.Log($"[QuestVideoExtension] Adjusting resolution: {newResolution.x}x{newResolution.y} for {currentPeerCount} peers");
+                if (IsDebugEnabled) Debug.Log($"[QuestVideoExtension] Adjusting resolution: {newResolution.x}x{newResolution.y} for {currentPeerCount} peers");
                 
                 var oldTexture = renderTexture;
                 renderTexture = new RenderTexture(newResolution.x, newResolution.y, 24, RenderTextureFormat.BGRA32);
@@ -516,7 +577,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         void OnGUI()
         {
-            if (!debugMode) return;
+            if (!IsDebugEnabled) return;
 
             GUI.Label(new Rect(10, 10, 300, 20), $"Quest Streaming: {(isStreaming ? "ON" : "OFF")}");
             GUI.Label(new Rect(10, 30, 300, 20), $"Connected Peers: {currentPeerCount}");

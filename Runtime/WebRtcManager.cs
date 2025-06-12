@@ -9,6 +9,7 @@ using UnityVerseBridge.Core.Signaling;
 using UnityVerseBridge.Core.Signaling.Data;
 using UnityVerseBridge.Core.Signaling.Messages;
 using UnityVerseBridge.Core.Threading;
+using UnityVerseBridge.Core.Utils;
 
 namespace UnityVerseBridge.Core
 {
@@ -610,6 +611,18 @@ namespace UnityVerseBridge.Core
                 trackSenders[videoTrack] = sender; // 트랙과 sender 매핑 저장
                 Debug.Log("[WebRtcManager] Video track added successfully to peer connection. Renegotiation will be triggered if connection is established.");
                 
+                // 비디오 인코딩 설정 최적화 (모바일용)
+                // 텍스처가 있는 경우 해상도 정보 사용
+                if (videoTrack.Texture != null)
+                {
+                    WebRtcCodecHelper.ConfigureVideoEncoding(sender, videoTrack.Texture.width, videoTrack.Texture.height, 30);
+                }
+                else
+                {
+                    // 기본값 사용 (640x360)
+                    WebRtcCodecHelper.ConfigureVideoEncoding(sender, 640, 360, 30);
+                }
+                
                 // Log sender info
                 var parameters = sender.GetParameters();
                 Debug.Log($"[WebRtcManager] Sender parameters - Encodings count: {parameters.encodings?.Length ?? 0}");
@@ -822,6 +835,10 @@ namespace UnityVerseBridge.Core
             peerConnection.OnDataChannel = HandleDataChannelReceived;
             peerConnection.OnTrack = HandleTrackReceived;
             peerConnection.OnNegotiationNeeded = HandleNegotiationNeeded;
+            
+            // 모바일 호환성을 위한 코덱 설정
+            WebRtcCodecHelper.ConfigureCodecPreferences(peerConnection);
+            Debug.Log("[WebRtcManager] Configured codec preferences for mobile compatibility");
         }
         
         private void CleanupPeerConnection()
@@ -1129,7 +1146,9 @@ namespace UnityVerseBridge.Core
             }
             try
             {
-                var offerMsg = new SessionDescriptionMessage("offer", offerDesc.sdp);
+                // 모바일 호환성을 위해 SDP 최적화
+                string optimizedSdp = WebRtcCodecHelper.OptimizeSdpForMobile(offerDesc.sdp);
+                var offerMsg = new SessionDescriptionMessage("offer", optimizedSdp);
                 _ = signalingClient.SendMessage(offerMsg); // await 제거!
             }
             catch (Exception e)
@@ -1200,7 +1219,9 @@ namespace UnityVerseBridge.Core
             
             try
             {
-                var answerMsg = new SessionDescriptionMessage("answer", answerDesc.sdp);
+                // 모바일 호환성을 위해 SDP 최적화
+                string optimizedSdp = WebRtcCodecHelper.OptimizeSdpForMobile(answerDesc.sdp);
+                var answerMsg = new SessionDescriptionMessage("answer", optimizedSdp);
                 _ = signalingClient.SendMessage(answerMsg); // await 제거!
                 Debug.Log($"[WebRtcManager] Answer sent successfully. IsRenegotiation: {isRenegotiation}");
                 

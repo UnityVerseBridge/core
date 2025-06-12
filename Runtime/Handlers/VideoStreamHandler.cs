@@ -13,8 +13,8 @@ namespace UnityVerseBridge.Core
         [Header("Video Settings - Host")]
         [SerializeField] private Camera streamCamera;
         [SerializeField] private RenderTexture streamTexture;
-        [SerializeField] private int videoWidth = 1280;
-        [SerializeField] private int videoHeight = 720;
+        [SerializeField] private int videoWidth = 640;
+        [SerializeField] private int videoHeight = 360;
         // [SerializeField] private int videoFramerate = 30; // Not used currently
         
         [Header("Video Settings - Client")]

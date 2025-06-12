@@ -9,6 +9,8 @@ Unity-based WebRTC bridge package for real-time peer-to-peer communication betwe
 - 🔌 **Easy Integration**: Simple setup with Unity menu tools
 - 🏗️ **Modular Architecture**: Clean separation of concerns with extensions
 - 🔒 **Secure Connection**: Room-based peer discovery with authentication support
+- 🎯 **Optimized Streaming**: H264 codec with adaptive quality (360p-1080p)
+- 🔄 **Platform-Specific Adapters**: Native WebSocket support for each platform
 
 ## Requirements
 
@@ -116,9 +118,11 @@ touchExtension.OnTouchReceived += (touchData) => {
 3. Verify network connectivity
 
 ### Performance
-- Use 720p resolution for optimal streaming
-- Set frame rate to 30 FPS
-- Enable hardware acceleration
+- Default resolution: 640x360 for optimal performance
+- Supported resolutions: 360p (minimal), 720p, 1080p
+- Frame rate: 30 FPS
+- Enable hardware acceleration (H264 codec)
+- Adaptive quality based on peer count
 
 ## Support
 

@@ -96,6 +96,7 @@ namespace UnityVerseBridge.Core
         public Canvas QuestTouchCanvas => questTouchCanvas;
         public RectTransform MobileTouchArea => mobileTouchArea;
         public GameObject MobileTouchFeedbackLayer => mobileTouchFeedbackLayer;
+        public bool ShowDebugUI => showDebugUI;
         
         #region Unity Lifecycle
         
