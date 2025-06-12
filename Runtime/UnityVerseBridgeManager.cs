@@ -161,6 +161,12 @@ namespace UnityVerseBridge.Core
         
         void OnDestroy()
         {
+            // Clean up debug UI if it was created
+            if (debugLogger != null && !showDebugUI)
+            {
+                Destroy(debugLogger);
+            }
+            
             Disconnect();
         }
         
@@ -198,15 +204,15 @@ namespace UnityVerseBridge.Core
             errorHandler.OnConnectionLost.AddListener(HandleConnectionLost);
             errorHandler.OnConnectionRestored.AddListener(HandleConnectionRestored);
             
-            // UI Manager
-            uiManager = UIManager.Instance;
+            // UI Manager - only create instance if showDebugUI is true
             if (showDebugUI)
             {
+                uiManager = UIManager.Instance;
                 uiManager.UpdateConnectionStatus("Initializing...", Color.yellow);
             }
             
-            // Debug Logger
-            if (unityVerseConfig.enableDebugLogging)
+            // Debug Logger - only create if showDebugUI is true
+            if (showDebugUI)
             {
                 debugLogger = gameObject.AddComponent<OnScreenDebugLogger>();
                 debugLogger.DisplayModeProperty = debugDisplayMode;
@@ -584,7 +590,7 @@ namespace UnityVerseBridge.Core
         {
             LogDebug("Signaling connected");
             
-            if (showDebugUI)
+            if (showDebugUI && uiManager != null)
             {
                 uiManager.UpdateConnectionStatus($"Connected ({detectedRole})", Color.green);
             }
@@ -596,7 +602,7 @@ namespace UnityVerseBridge.Core
         {
             LogWarning("Signaling disconnected");
             
-            if (showDebugUI)
+            if (showDebugUI && uiManager != null)
             {
                 uiManager.UpdateConnectionStatus("Disconnected", Color.red);
             }
@@ -617,7 +623,7 @@ namespace UnityVerseBridge.Core
         {
             LogDebug("Peer connection established");
             
-            if (showDebugUI)
+            if (showDebugUI && uiManager != null)
             {
                 uiManager.UpdateConnectionStatus($"Streaming ({detectedRole})", Color.green);
             }
@@ -642,7 +648,7 @@ namespace UnityVerseBridge.Core
         {
             LogDebug("Connection restored");
             
-            if (showDebugUI)
+            if (showDebugUI && uiManager != null)
             {
                 uiManager.UpdateConnectionStatus($"Connected ({detectedRole})", Color.green);
             }
@@ -655,7 +661,7 @@ namespace UnityVerseBridge.Core
             
             errorHandler.ReportError(UnityVerseErrorHandler.ErrorType.Connection, error, exception);
             
-            if (showDebugUI)
+            if (showDebugUI && uiManager != null)
             {
                 uiManager.HideLoading();
                 uiManager.ShowError($"Connection failed: {error}", 5f);
