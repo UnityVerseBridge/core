@@ -194,6 +194,13 @@ namespace UnityVerseBridge.Core.Signaling.Adapters
                         {
                             var messageBytes = ms.ToArray();
                             
+                            // Log received text messages for debugging
+                            if (result.MessageType == WebSocketMessageType.Text)
+                            {
+                                var text = System.Text.Encoding.UTF8.GetString(messageBytes);
+                                Debug.Log($"[SystemWebSocket] Received text: {text}");
+                            }
+                            
                             lock (_messageQueue)
                             {
                                 _messageQueue.Enqueue(() => OnMessage?.Invoke(messageBytes));

@@ -2,6 +2,9 @@ using UnityEngine;
 using UnityVerseBridge.Core;
 using UnityVerseBridge.Core.DataChannel.Data;
 using System.Collections;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 
 namespace UnityVerseBridge.Core.Extensions.Quest
 {
@@ -101,11 +104,16 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 DetectButtonInputs();
             }
 #else
-            // Editor나 Quest가 아닌 환경에서는 키보드 입력으로 테스트
-            if (enableButtonHaptics && Input.GetKeyDown(KeyCode.Space))
+            // Editor나 Quest가 아닌 환경에서는 새로운 Input System 사용
+            if (enableButtonHaptics)
             {
-                RequestHapticFeedback(HapticCommandType.VibrateShort, 0.1f, 0.8f);
-                if (debugMode) Debug.Log("[QuestHapticExtension] Space key pressed - sending haptic");
+                // Check if we have keyboard support
+                var keyboard = UnityEngine.InputSystem.Keyboard.current;
+                if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame)
+                {
+                    RequestHapticFeedback(HapticCommandType.VibrateShort, 0.1f, 0.8f);
+                    if (debugMode) Debug.Log("[QuestHapticExtension] Space key pressed - sending haptic");
+                }
             }
 #endif
         }

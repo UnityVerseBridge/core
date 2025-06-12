@@ -115,9 +115,33 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             if (autoCreateTexture && receiveTexture == null)
             {
                 Debug.Log("[MobileVideoExtension] Creating RenderTexture for receiving video...");
-                receiveTexture = new RenderTexture(textureWidth, textureHeight, 24, RenderTextureFormat.BGRA32, RenderTextureReadWrite.sRGB);
+                
+                // Try different formats for compatibility
+                RenderTextureFormat format = RenderTextureFormat.BGRA32;
+                
+                #if UNITY_IOS
+                // iOS might prefer different format
+                if (!SystemInfo.SupportsRenderTextureFormat(format))
+                {
+                    format = RenderTextureFormat.ARGB32;
+                    Debug.Log($"[MobileVideoExtension] iOS: Using ARGB32 format instead of BGRA32");
+                }
+                #elif UNITY_ANDROID
+                // Android compatibility check
+                if (!SystemInfo.SupportsRenderTextureFormat(format))
+                {
+                    format = RenderTextureFormat.RGB111110Float;
+                    Debug.Log($"[MobileVideoExtension] Android: Using RGB111110Float format");
+                }
+                #endif
+                
+                receiveTexture = new RenderTexture(textureWidth, textureHeight, 0, format, RenderTextureReadWrite.Default);
                 receiveTexture.name = "MobileReceiveTexture";
+                receiveTexture.useMipMap = false;
+                receiveTexture.autoGenerateMips = false;
                 receiveTexture.Create();
+                
+                Debug.Log($"[MobileVideoExtension] RenderTexture created - Format: {format}, Size: {textureWidth}x{textureHeight}");
             }
 
             // 비디오 트랙 수신 이벤트 구독
@@ -211,29 +235,58 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
         {
             Debug.Log("[MobileVideoExtension] Waiting for decoder to be ready...");
             
-            // Wait a bit for decoder to initialize internally
-            yield return new WaitForSeconds(0.5f);
+            // Increase wait time for mobile devices
+            float initialWait = 1.0f; // Increased from 0.5f
+            yield return new WaitForSeconds(initialWait);
             
             // Check if track is ready by checking ReadyState
             if (receivedVideoTrack != null && receivedVideoTrack.ReadyState == TrackState.Live)
             {
-                Debug.Log("[MobileVideoExtension] Track is live and ready");
+                Debug.Log($"[MobileVideoExtension] Track is live and ready - Enabled: {receivedVideoTrack.Enabled}");
+                
+                // Ensure track is enabled
+                if (!receivedVideoTrack.Enabled)
+                {
+                    receivedVideoTrack.Enabled = true;
+                    Debug.Log("[MobileVideoExtension] Enabled video track");
+                }
                 
                 // Primary method: Use OnVideoReceived event (recommended)
                 receivedVideoTrack.OnVideoReceived += OnVideoFrameReceived;
+                Debug.Log("[MobileVideoExtension] Subscribed to OnVideoReceived event");
                 
                 isReceiving = true;
                 
-                // Fallback method: polling (for edge cases)
+                // Also start polling as a backup
                 if (updateCoroutine != null)
                 {
                     StopCoroutine(updateCoroutine);
                 }
                 updateCoroutine = StartCoroutine(UpdateVideoTexture());
+                Debug.Log("[MobileVideoExtension] Started polling coroutine as backup");
             }
             else
             {
-                Debug.LogError($"[MobileVideoExtension] Track not ready after wait. State: {receivedVideoTrack?.ReadyState}");
+                Debug.LogError($"[MobileVideoExtension] Track not ready after {initialWait}s wait. State: {receivedVideoTrack?.ReadyState}, Track exists: {receivedVideoTrack != null}");
+                
+                // Retry with longer wait
+                if (receivedVideoTrack != null)
+                {
+                    Debug.Log("[MobileVideoExtension] Retrying decoder wait...");
+                    yield return new WaitForSeconds(2.0f);
+                    
+                    if (receivedVideoTrack.ReadyState == TrackState.Live)
+                    {
+                        Debug.Log("[MobileVideoExtension] Track became ready after extended wait");
+                        receivedVideoTrack.OnVideoReceived += OnVideoFrameReceived;
+                        isReceiving = true;
+                        updateCoroutine = StartCoroutine(UpdateVideoTexture());
+                    }
+                    else
+                    {
+                        Debug.LogError("[MobileVideoExtension] Track still not ready after extended wait");
+                    }
+                }
             }
         }
 
@@ -242,8 +295,10 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             // Texture is guaranteed to be ready here
             if (texture != null)
             {
-                if (debugMode)
-                    Debug.Log($"[MobileVideoExtension] Video received via OnVideoReceived: {texture.width}x{texture.height}, Type: {texture.GetType().Name}");
+                // Enhanced logging for debugging
+                Debug.Log($"[MobileVideoExtension] Video received via OnVideoReceived: {texture.width}x{texture.height}, Type: {texture.GetType().Name}, " +
+                    $"Format: {texture.graphicsFormat}, FilterMode: {texture.filterMode}, " +
+                    $"Dimension: {texture.dimension}, MipMapBias: {texture.mipMapBias}");
                 
                 // Stop polling if it's running
                 if (updateCoroutine != null)
@@ -257,8 +312,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                 // Android may need texture alignment
                 if (texture.width % 16 != 0 || texture.height % 16 != 0)
                 {
-                    if (debugMode)
-                        Debug.LogWarning("[MobileVideoExtension] Android texture alignment issue detected");
+                    Debug.LogWarning($"[MobileVideoExtension] Android texture alignment issue detected: {texture.width}x{texture.height}");
                 }
                 #endif
                 
@@ -276,14 +330,62 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
         private void UpdateDisplay(Texture texture)
         {
-            // Try direct assignment first
-            displayImage.texture = texture;
+            Debug.Log($"[MobileVideoExtension] UpdateDisplay called - RenderTexture exists: {receiveTexture != null}, " +
+                $"DisplayImage exists: {displayImage != null}, AutoCreateTexture: {autoCreateTexture}");
+            
+            // Check if we should use RenderTexture or direct assignment
+            if (receiveTexture != null)
+            {
+                // Ensure RenderTexture is created
+                if (!receiveTexture.IsCreated())
+                {
+                    Debug.Log("[MobileVideoExtension] RenderTexture not created, creating now...");
+                    receiveTexture.Create();
+                }
+                
+                // Use Graphics.Blit to copy texture to RenderTexture
+                try
+                {
+                    Graphics.Blit(texture, receiveTexture);
+                    displayImage.texture = receiveTexture;
+                    Debug.Log($"[MobileVideoExtension] Successfully blitted to RenderTexture and assigned to display");
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogError($"[MobileVideoExtension] Error during Graphics.Blit: {e.Message}");
+                    // Fallback to direct assignment
+                    displayImage.texture = texture;
+                }
+            }
+            else
+            {
+                // Direct assignment
+                displayImage.texture = texture;
+                Debug.Log($"[MobileVideoExtension] Direct texture assignment to display (no RenderTexture)");
+            }
+            
+            // Force UI update
+            displayImage.SetMaterialDirty();
+            
+            // Ensure the display image is visible
+            if (!displayImage.gameObject.activeInHierarchy)
+            {
+                Debug.LogWarning($"[MobileVideoExtension] Display image GameObject is not active! Path: {GetGameObjectPath(displayImage.gameObject)}");
+            }
+            
+            // Check if image has proper alpha and color
+            if (displayImage.color.a < 0.01f)
+            {
+                Debug.LogWarning($"[MobileVideoExtension] Display image alpha is too low: {displayImage.color.a}");
+                displayImage.color = new Color(1f, 1f, 1f, 1f);
+            }
             
             // Update aspect ratio
             if (maintainAspectRatio && aspectRatioFitter != null)
             {
                 float aspectRatio = (float)texture.width / texture.height;
                 aspectRatioFitter.aspectRatio = aspectRatio;
+                Debug.Log($"[MobileVideoExtension] Updated aspect ratio to: {aspectRatio}");
             }
         }
 
@@ -339,8 +441,22 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             {
                 if (receivedVideoTrack.Texture != null)
                 {
+                    // Log texture info periodically (every 60 frames)
+                    if (Time.frameCount % 60 == 0)
+                    {
+                        var tex = receivedVideoTrack.Texture;
+                        Debug.Log($"[MobileVideoExtension] Polling: Texture available - {tex.width}x{tex.height}, " +
+                            $"Format: {tex.graphicsFormat}, Type: {tex.GetType().Name}");
+                    }
+                    
                     if (receiveTexture != null)
                     {
+                        // Ensure RenderTexture is created
+                        if (!receiveTexture.IsCreated())
+                        {
+                            receiveTexture.Create();
+                        }
+                        
                         // Graphics.Blit: GPU에서 텍스처를 효율적으로 복사
                         Graphics.Blit(receivedVideoTrack.Texture, receiveTexture);
                         displayImage.texture = receiveTexture;
@@ -382,6 +498,20 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
         {
             debugMode = enable;
             showDebugInfo = enable;
+        }
+        
+        private string GetGameObjectPath(GameObject obj)
+        {
+            string path = obj.name;
+            Transform parent = obj.transform.parent;
+            
+            while (parent != null)
+            {
+                path = parent.name + "/" + path;
+                parent = parent.parent;
+            }
+            
+            return path;
         }
     }
 }

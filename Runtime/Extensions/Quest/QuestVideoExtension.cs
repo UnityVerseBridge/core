@@ -141,7 +141,9 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             }
             
             // Subscribe to events
-            webRtcManager.OnSignalingConnected += StartStreaming;
+            // Don't start streaming immediately on signaling connected
+            // Wait for PeerConnection to be properly initialized
+            webRtcManager.OnSignalingConnected += OnSignalingConnectedHandler;
             webRtcManager.OnSignalingDisconnected += StopStreaming;
             webRtcManager.OnPeerConnected += HandlePeerConnected;
             webRtcManager.OnPeerDisconnected += HandlePeerDisconnected;
@@ -155,10 +157,11 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             
             if (webRtcManager != null)
             {
-                webRtcManager.OnSignalingConnected -= StartStreaming;
+                webRtcManager.OnSignalingConnected -= OnSignalingConnectedHandler;
                 webRtcManager.OnSignalingDisconnected -= StopStreaming;
                 webRtcManager.OnPeerConnected -= HandlePeerConnected;
                 webRtcManager.OnPeerDisconnected -= HandlePeerDisconnected;
+                webRtcManager.OnWebRtcConnected -= OnWebRtcConnectedAddTrack;
             }
 
             if (autoCreateRenderTexture && renderTexture != null && !Application.isEditor)
@@ -197,6 +200,25 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 #endif
         }
 
+        private void OnSignalingConnectedHandler()
+        {
+            // Start video streaming immediately so it's ready when peer connects
+            Debug.Log("[QuestVideoExtension] Signaling connected, preparing video stream...");
+            StartCoroutine(PrepareVideoStream());
+        }
+        
+        private IEnumerator PrepareVideoStream()
+        {
+            // Wait a bit to ensure render texture and camera are ready
+            yield return new WaitForSeconds(0.5f);
+            
+            // Start streaming immediately to prepare the video track
+            StartStreaming();
+            
+            // The video track will be available when PeerConnection is created
+            Debug.Log("[QuestVideoExtension] Video stream prepared and ready for peer connections");
+        }
+        
         private void StartStreaming()
         {
             if (isStreaming) return;
@@ -219,7 +241,20 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
                 // Create video stream track
                 videoStreamTrack = new VideoStreamTrack(renderTexture);
-                webRtcManager.AddVideoTrack(videoStreamTrack);
+                
+                // Store the track for later use when peer connection is ready
+                if (webRtcManager.GetPeerConnectionState() == Unity.WebRTC.RTCPeerConnectionState.Closed)
+                {
+                    Debug.Log("[QuestVideoExtension] PeerConnection not ready yet, storing video track for later");
+                    // Subscribe to WebRTC connected event to add track when ready
+                    webRtcManager.OnWebRtcConnected += OnWebRtcConnectedAddTrack;
+                }
+                else
+                {
+                    // Add track immediately if peer connection exists
+                    webRtcManager.AddVideoTrack(videoStreamTrack);
+                    Debug.Log("[QuestVideoExtension] Added video track to existing PeerConnection");
+                }
                 
                 isStreaming = true;
                 
@@ -231,6 +266,29 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             catch (Exception e)
             {
                 Debug.LogError($"[QuestVideoExtension] Failed to start streaming: {e.Message}");
+            }
+        }
+        
+        private void OnWebRtcConnectedAddTrack()
+        {
+            if (videoStreamTrack != null && webRtcManager != null)
+            {
+                Debug.Log("[QuestVideoExtension] WebRTC connected, will add video track after a short delay");
+                StartCoroutine(AddVideoTrackWithDelay());
+                // Unsubscribe after adding
+                webRtcManager.OnWebRtcConnected -= OnWebRtcConnectedAddTrack;
+            }
+        }
+        
+        private IEnumerator AddVideoTrackWithDelay()
+        {
+            // Wait a bit to ensure the initial connection is fully established
+            yield return new WaitForSeconds(1.0f);
+            
+            if (videoStreamTrack != null && webRtcManager != null)
+            {
+                Debug.Log("[QuestVideoExtension] Adding video track to PeerConnection now");
+                webRtcManager.AddVideoTrack(videoStreamTrack);
             }
         }
 

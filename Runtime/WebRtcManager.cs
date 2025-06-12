@@ -184,8 +184,8 @@ namespace UnityVerseBridge.Core
                 this.signalingServerUrl = config.signalingServerUrl;
                 this.roomId = config.roomId;
                 this.isOfferer = config.clientType == ClientType.Quest;
-                this.autoStartPeerConnection = config.clientType == ClientType.Quest; // Quest should auto-start
-                Debug.Log($"[WebRtcManager] ConnectionConfig set - URL: {signalingServerUrl}, Room: {roomId}, IsOfferer: {isOfferer}");
+                this.autoStartPeerConnection = false; // Don't auto-start, wait for client-ready message
+                Debug.Log($"[WebRtcManager] ConnectionConfig set - URL: {signalingServerUrl}, Room: {roomId}, IsOfferer: {isOfferer}, AutoStart: {autoStartPeerConnection}");
             }
         }
 
@@ -481,6 +481,9 @@ namespace UnityVerseBridge.Core
 
         // 트랙 관리를 위한 Dictionary 추가
         private readonly Dictionary<MediaStreamTrack, RTCRtpSender> trackSenders = new Dictionary<MediaStreamTrack, RTCRtpSender>();
+        
+        // 수신된 트랙을 추적하기 위한 HashSet
+        private readonly HashSet<string> receivedTrackIds = new HashSet<string>();
 
         public void AddVideoTrack(VideoStreamTrack videoTrack)
         {
@@ -525,6 +528,10 @@ namespace UnityVerseBridge.Core
             }
 
             Debug.Log($"[WebRtcManager] Adding video track: {videoTrack.Id}");
+            
+            // Log current state before adding track
+            Debug.Log($"[WebRtcManager] Current state before adding video track - ConnectionState: {peerConnection.ConnectionState}, SignalingState: {peerConnection.SignalingState}");
+            
             RTCRtpSender sender = peerConnection.AddTrack(videoTrack);
 
             if (sender == null)
@@ -534,7 +541,13 @@ namespace UnityVerseBridge.Core
             else
             {
                 trackSenders[videoTrack] = sender; // 트랙과 sender 매핑 저장
-                Debug.Log("[WebRtcManager] Video track added successfully to peer connection. Renegotiation might be needed.");
+                Debug.Log("[WebRtcManager] Video track added successfully to peer connection. Renegotiation will be triggered if connection is established.");
+                
+                // Log if we're in a state that requires renegotiation
+                if (peerConnection.ConnectionState == RTCPeerConnectionState.Connected)
+                {
+                    Debug.Log("[WebRtcManager] Connection is already established - renegotiation will be needed");
+                }
             }
         }
 
@@ -759,6 +772,9 @@ namespace UnityVerseBridge.Core
                 peerConnection.Close();
                 peerConnection.Dispose();
                 peerConnection = null;
+                
+                // Clear received track IDs
+                receivedTrackIds.Clear();
             }
         }
 
@@ -822,7 +838,6 @@ namespace UnityVerseBridge.Core
         private void HandleSignalingConnected()
         {
             _isSignalingConnected = true;
-            OnSignalingConnected?.Invoke();
             
             // Multi-peer mode: Join room
             if (enableMultiPeer)
@@ -834,6 +849,9 @@ namespace UnityVerseBridge.Core
             {
                 StartPeerConnection(); // Single-peer mode: Offerer이고 autoStart가 true일 경우에만 자동으로 PeerConnection 시작
             }
+            
+            // Fire event after PeerConnection setup to ensure proper initialization order
+            OnSignalingConnected?.Invoke();
         }
 
         private void HandleSignalingDisconnected()
@@ -872,9 +890,39 @@ namespace UnityVerseBridge.Core
                 }
             }
             
+            // Handle error messages
+            if (type == "error")
+            {
+                var errorData = JsonUtility.FromJson<ErrorMessage>(jsonData);
+                Debug.LogError($"[WebRtcManager] Server error: {errorData.error} (context: {errorData.context})");
+                
+                // If error is about room already having a host, disconnect and notify
+                if (errorData.error.Contains("already has a host"))
+                {
+                    Debug.LogError("[WebRtcManager] Room already has a host. Please try a different room.");
+                    Disconnect();
+                }
+                return;
+            }
+            
+            // Handle client-ready message (sent when a client joins the room)
+            if (type == "client-ready")
+            {
+                if (isOfferer)
+                {
+                    var clientReadyData = JsonUtility.FromJson<ClientReadyMessage>(jsonData);
+                    Debug.Log($"[WebRtcManager] Client ready to receive video: {clientReadyData.peerId}");
+                    
+                    // Start peer connection process when client is ready
+                    Debug.Log("[WebRtcManager] Starting peer connection for client");
+                    StartPeerConnection();
+                }
+                return;
+            }
+            
             // Server-specific messages should be ignored regardless of PeerConnection state
             if (type == "joined-room" || type == "peer-joined" || type == "peer-left" || 
-                type == "client-ready" || type == "host-disconnected")
+                type == "host-disconnected")
             {
                 Debug.Log($"[WebRtcManager] Received server message '{type}' - ignoring (handled by app initializer)");
                 return;
@@ -911,6 +959,16 @@ namespace UnityVerseBridge.Core
                         if (!isOfferer) // 자신이 Answerer일 경우에만 Offer 처리
                         {
                             if (peerConnection == null) InternalCreatePeerConnection(); // 방어 코드
+                            
+                            // Check signaling state for renegotiation
+                            if (peerConnection != null && peerConnection.SignalingState != RTCSignalingState.Stable)
+                            {
+                                Debug.LogWarning($"[WebRtcManager] Received offer but signaling state is not stable (Current: {peerConnection.SignalingState}). Queueing for later processing.");
+                                // TODO: Implement offer queueing mechanism for when signaling state becomes stable
+                                break;
+                            }
+                            
+                            Debug.Log($"[WebRtcManager] Processing offer. Current signaling state: {peerConnection?.SignalingState}");
                             StartNegotiationCoroutine(HandleOfferAndSendAnswer(JsonUtility.FromJson<SessionDescriptionMessage>(jsonData)));
                         }
                         else
@@ -1014,7 +1072,31 @@ namespace UnityVerseBridge.Core
                 Debug.LogError("PC null in HandleOffer");
                 yield break;
             }
+            
+            // Log the current state before processing
+            Debug.Log($"[WebRtcManager] HandleOfferAndSendAnswer - Current state: ConnectionState={peerConnection.ConnectionState}, SignalingState={peerConnection.SignalingState}");
+            
+            // Check if this is a renegotiation (connection already established)
+            bool isRenegotiation = peerConnection.ConnectionState == RTCPeerConnectionState.Connected;
+            if (isRenegotiation)
+            {
+                Debug.Log("[WebRtcManager] Processing renegotiation offer (connection already established)");
+                
+                // Log current receivers before processing offer
+                var currentReceivers = peerConnection.GetReceivers();
+                Debug.Log($"[WebRtcManager] Current receivers before renegotiation: {currentReceivers?.Count() ?? 0}");
+                foreach (var receiver in currentReceivers ?? new RTCRtpReceiver[0])
+                {
+                    if (receiver.Track != null)
+                    {
+                        Debug.Log($"[WebRtcManager] Existing receiver track: Kind={receiver.Track.Kind}, ID={receiver.Track.Id}");
+                    }
+                }
+            }
+            
             RTCSessionDescription offerDesc = new RTCSessionDescription { type = RTCSdpType.Offer, sdp = offerMessage.sdp };
+            Debug.Log($"[WebRtcManager] Setting remote description (offer). SDP length: {offerMessage.sdp.Length}");
+            
             var remoteDescOp = peerConnection.SetRemoteDescription(ref offerDesc);
             yield return remoteDescOp;
             if (remoteDescOp.IsError)
@@ -1022,6 +1104,8 @@ namespace UnityVerseBridge.Core
                 Debug.LogError($"Failed RemoteDesc(Offer): {remoteDescOp.Error.message}");
                 yield break;
             }
+            Debug.Log("[WebRtcManager] Remote description (offer) set successfully");
+            
             var answerOp = peerConnection.CreateAnswer();
             yield return answerOp;
             if (answerOp.IsError)
@@ -1029,6 +1113,8 @@ namespace UnityVerseBridge.Core
                 Debug.LogError($"Failed CreateAnswer: {answerOp.Error.message}");
                 yield break;
             }
+            Debug.Log("[WebRtcManager] Answer created successfully");
+            
             var answerDesc = answerOp.Desc;
             var localDescOp = peerConnection.SetLocalDescription(ref answerDesc);
             yield return localDescOp;
@@ -1037,10 +1123,20 @@ namespace UnityVerseBridge.Core
                 Debug.LogError($"Failed LocalDesc(Answer): {localDescOp.Error.message}");
                 yield break;
             }
+            Debug.Log("[WebRtcManager] Local description (answer) set successfully");
+            
             try
             {
                 var answerMsg = new SessionDescriptionMessage("answer", answerDesc.sdp);
                 _ = signalingClient.SendMessage(answerMsg); // await 제거!
+                Debug.Log($"[WebRtcManager] Answer sent successfully. IsRenegotiation: {isRenegotiation}");
+                
+                // For renegotiation, check if there are any received tracks that didn't trigger OnTrack event
+                if (isRenegotiation)
+                {
+                    Debug.Log("[WebRtcManager] Scheduling track check after renegotiation...");
+                    StartCoroutine(CheckTracksAfterDelay());
+                }
             }
             catch (Exception e)
             {
@@ -1164,7 +1260,21 @@ namespace UnityVerseBridge.Core
 
         private void HandleTrackReceived(RTCTrackEvent e)
         {
-            Debug.Log($"[WebRtcManager] Track Received: {e.Track.Kind}, ID: {e.Track.Id}");
+            Debug.Log($"[WebRtcManager] Track Received: {e.Track.Kind}, ID: {e.Track.Id}, Enabled: {e.Track.Enabled}");
+            
+            // Track this received track
+            receivedTrackIds.Add(e.Track.Id);
+            
+            // Log stream information
+            if (e.Streams != null && e.Streams.Count() > 0)
+            {
+                Debug.Log($"[WebRtcManager] Track is part of {e.Streams.Count()} stream(s)");
+                foreach (var stream in e.Streams)
+                {
+                    Debug.Log($"[WebRtcManager] Stream ID: {stream.Id}");
+                }
+            }
+            
             OnTrackReceived?.Invoke(e.Track);
 
             if (e.Track.Kind == TrackKind.Video)
@@ -1172,7 +1282,12 @@ namespace UnityVerseBridge.Core
                 var videoTrack = e.Track as VideoStreamTrack;
                 if (videoTrack != null)
                 {
+                    Debug.Log($"[WebRtcManager] Video track received - invoking OnVideoTrackReceived event");
                     OnVideoTrackReceived?.Invoke(videoTrack);
+                }
+                else
+                {
+                    Debug.LogError("[WebRtcManager] Failed to cast track to VideoStreamTrack");
                 }
             }
             else if (e.Track.Kind == TrackKind.Audio)
@@ -1180,7 +1295,127 @@ namespace UnityVerseBridge.Core
                 var audioTrack = e.Track as AudioStreamTrack;
                 if (audioTrack != null)
                 {
+                    Debug.Log($"[WebRtcManager] Audio track received - invoking OnAudioTrackReceived event");
                     OnAudioTrackReceived?.Invoke(audioTrack);
+                }
+                else
+                {
+                    Debug.LogError("[WebRtcManager] Failed to cast track to AudioStreamTrack");
+                }
+            }
+        }
+        
+        private IEnumerator CheckTracksAfterDelay()
+        {
+            Debug.Log("[WebRtcManager] Starting delayed track check after renegotiation...");
+            
+            // Initial wait for connection to stabilize
+            yield return new WaitForSeconds(0.5f);
+            
+            // Check multiple times to ensure track is detected
+            int checkCount = 5; // Increase check count
+            float checkInterval = 0.3f; // Shorter interval
+            
+            for (int i = 0; i < checkCount; i++)
+            {
+                Debug.Log($"[WebRtcManager] Track check attempt {i+1}/{checkCount}");
+                CheckReceivedTracksAfterRenegotiation();
+                
+                // Check if we have video tracks now
+                var receivers = peerConnection?.GetReceivers();
+                if (receivers != null)
+                {
+                    var videoReceivers = receivers.Where(r => r.Track != null && r.Track.Kind == TrackKind.Video).ToList();
+                    if (videoReceivers.Count > 0)
+                    {
+                        Debug.Log($"[WebRtcManager] Found {videoReceivers.Count} video track(s) on attempt {i+1}");
+                        break;
+                    }
+                }
+                
+                // Wait before next check
+                if (i < checkCount - 1)
+                {
+                    yield return new WaitForSeconds(checkInterval);
+                }
+            }
+            
+            Debug.Log("[WebRtcManager] Completed delayed track check");
+        }
+        
+        private void CheckReceivedTracksAfterRenegotiation()
+        {
+            if (peerConnection == null)
+            {
+                Debug.LogWarning("[WebRtcManager] Cannot check tracks: PeerConnection is null");
+                return;
+            }
+            
+            Debug.Log("[WebRtcManager] Checking receivers after renegotiation...");
+            
+            var receivers = peerConnection.GetReceivers();
+            if (receivers == null || receivers.Count() == 0)
+            {
+                Debug.LogWarning("[WebRtcManager] No receivers found after renegotiation");
+                return;
+            }
+            
+            Debug.Log($"[WebRtcManager] Found {receivers.Count()} receiver(s) after renegotiation");
+            
+            foreach (var receiver in receivers)
+            {
+                if (receiver.Track != null)
+                {
+                    Debug.Log($"[WebRtcManager] Receiver has track - Kind: {receiver.Track.Kind}, ID: {receiver.Track.Id}, Enabled: {receiver.Track.Enabled}, ReadyState: {receiver.Track.ReadyState}");
+                    
+                    // Always process video tracks during renegotiation, even if we've seen the ID before
+                    // This is because Unity WebRTC might reuse track IDs during renegotiation
+                    if (receiver.Track.Kind == TrackKind.Video)
+                    {
+                        var videoTrack = receiver.Track as VideoStreamTrack;
+                        if (videoTrack != null)
+                        {
+                            // Check if track is ready
+                            if (receiver.Track.ReadyState == TrackState.Live)
+                            {
+                                Debug.Log($"[WebRtcManager] Processing video track from renegotiation: {receiver.Track.Id}");
+                                
+                                // Always trigger the event during renegotiation to ensure UI updates
+                                Debug.Log("[WebRtcManager] Triggering OnVideoTrackReceived for renegotiation track");
+                                OnVideoTrackReceived?.Invoke(videoTrack);
+                                OnTrackReceived?.Invoke(videoTrack);
+                                
+                                // Add to received tracks if not already there
+                                if (!receivedTrackIds.Contains(receiver.Track.Id))
+                                {
+                                    receivedTrackIds.Add(receiver.Track.Id);
+                                }
+                            }
+                            else
+                            {
+                                Debug.LogWarning($"[WebRtcManager] Video track not ready yet: {receiver.Track.ReadyState}");
+                            }
+                        }
+                    }
+                    else if (receiver.Track.Kind == TrackKind.Audio)
+                    {
+                        var audioTrack = receiver.Track as AudioStreamTrack;
+                        if (audioTrack != null && receiver.Track.ReadyState == TrackState.Live)
+                        {
+                            Debug.Log("[WebRtcManager] Triggering OnAudioTrackReceived for renegotiation track");
+                            OnAudioTrackReceived?.Invoke(audioTrack);
+                            OnTrackReceived?.Invoke(audioTrack);
+                            
+                            if (!receivedTrackIds.Contains(receiver.Track.Id))
+                            {
+                                receivedTrackIds.Add(receiver.Track.Id);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    Debug.Log("[WebRtcManager] Receiver found but track is null - this might be a transceiver without media yet");
                 }
             }
         }
@@ -1199,10 +1434,15 @@ namespace UnityVerseBridge.Core
                 Debug.LogError("[WebRtcManager] Cannot start renegotiation: Signaling is not connected.");
                 return;
             }
+            
+            // Log current state for debugging
+            Debug.Log($"[WebRtcManager] Current state before renegotiation - ConnectionState: {peerConnection.ConnectionState}, SignalingState: {peerConnection.SignalingState}");
+            
             if (peerConnection.SignalingState != RTCSignalingState.Stable)
             {
                 Debug.LogError($"[WebRtcManager] Cannot start renegotiation: Signaling state is not Stable (Current: {peerConnection.SignalingState}). Waiting for Stable state.");
-                // 상태가 Stable이 아니면 재협상을 시도하지 않고 대기 (나중에 다시 호출될 수 있음)
+                // Queue renegotiation for when state becomes stable
+                StartCoroutine(WaitForStableStateAndRenegotiate());
                 return;
             }
             if (_isNegotiationCoroutineRunning) 
@@ -1222,6 +1462,36 @@ namespace UnityVerseBridge.Core
                 // Answerer 측에서 OnNegotiationNeeded가 발생하면, 일반적으로는 아무것도 하지 않거나
                 // 상대방에게 재협상이 필요함을 알리는 out-of-band 시그널을 보낼 수 있음 (여기서는 무시).
             }
+        }
+        
+        private IEnumerator WaitForStableStateAndRenegotiate()
+        {
+            Debug.Log("[WebRtcManager] Waiting for stable state to perform renegotiation...");
+            
+            float timeout = 5f;
+            float elapsed = 0f;
+            
+            while (peerConnection != null && peerConnection.SignalingState != RTCSignalingState.Stable && elapsed < timeout)
+            {
+                yield return new WaitForSeconds(0.1f);
+                elapsed += 0.1f;
+            }
+            
+            if (peerConnection == null)
+            {
+                Debug.LogError("[WebRtcManager] PeerConnection was destroyed while waiting for stable state");
+                yield break;
+            }
+            
+            if (elapsed >= timeout)
+            {
+                Debug.LogError("[WebRtcManager] Timeout waiting for stable state");
+                yield break;
+            }
+            
+            // Try renegotiation again
+            Debug.Log("[WebRtcManager] Stable state reached, attempting renegotiation now");
+            HandleNegotiationNeeded();
         }
 
         public void SetRole(bool isOffererRole)

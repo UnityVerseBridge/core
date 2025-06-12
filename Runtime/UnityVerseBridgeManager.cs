@@ -4,16 +4,19 @@ using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityVerseBridge.Core.Signaling;
+using UnityVerseBridge.Core.UI;
+using UnityVerseBridge.Core.Utils;
 
 namespace UnityVerseBridge.Core
 {
     /// <summary>
-    /// Unified manager for UnityVerseBridge with platform-specific settings
+    /// Unified manager for UnityVerseBridge with automatic platform detection
     /// </summary>
     [AddComponentMenu("UnityVerseBridge/UnityVerseBridge Manager")]
     public class UnityVerseBridgeManager : MonoBehaviour
     {
-#if UNITY_EDITOR
+        #region Editor Tools
+        #if UNITY_EDITOR
         [ContextMenu("Remove This Bridge Instance")]
         private void RemoveThisBridge()
         {
@@ -24,353 +27,231 @@ namespace UnityVerseBridge.Core
                 UnityEditor.Undo.DestroyObjectImmediate(gameObject);
             }
         }
-#endif
-        /// <summary>
-        /// Bridge operation mode
-        /// </summary>
-        public enum BridgeMode
+        
+        [ContextMenu("Run Platform Debugger")]
+        private void RunPlatformDebugger()
         {
-            /// <summary>
-            /// Host mode - Used by Quest VR (streams video, receives touch)
-            /// </summary>
-            Host,
-            
-            /// <summary>
-            /// Client mode - Used by Mobile (receives video, sends touch)
-            /// </summary>
-            Client
+            var debugger = GetComponent<PlatformDebugger>();
+            if (debugger == null)
+            {
+                debugger = gameObject.AddComponent<PlatformDebugger>();
+            }
+            debugger.LogPlatformInfo();
         }
-        [Header("Common Settings")]
-        [SerializeField] private ConnectionConfig configuration;
-        [SerializeField] private WebRtcConfiguration webRtcConfiguration;
-        [SerializeField] private bool enableAutoConnect = true;
-        [SerializeField] private bool enableDebugLogging = true;
+        #endif
+        #endregion
         
-        [Header("Quest-Specific References")]
-        [SerializeField] private Camera vrCamera;
-        [SerializeField] private bool enableVideoStreaming = true;
-        [SerializeField] private bool enableTouchReceiving = true;
-        [SerializeField] private bool enableHapticFeedback = true;
-        [SerializeField] private Canvas touchCanvas;
+        [Header("Configuration")]
+        [SerializeField] private UnityVerseConfig unityVerseConfig;
+        [SerializeField] private ConnectionConfig legacyConfig; // For backward compatibility
         
-        [Header("Mobile-Specific References")]
-        [SerializeField] private RawImage videoDisplay;
-        [SerializeField] private bool enableVideoReceiving = true;
-        [SerializeField] private bool enableTouchSending = true;
-        [SerializeField] private bool enableHapticReceiving = true;
-        [SerializeField] private GameObject connectionUI;
+        [Header("Platform-Specific References")]
+        [SerializeField] private Camera vrCamera; // Quest only
+        [SerializeField] private RawImage videoDisplay; // Mobile only
         
-        // Runtime components
+        [Header("Debug")]
+        [SerializeField] private bool showDebugUI = true;
+        [SerializeField] private OnScreenDebugLogger.DisplayMode debugDisplayMode = OnScreenDebugLogger.DisplayMode.GUI;
+        
+        // Core components
         private WebRtcManager webRtcManager;
-        private GameObject bridgeComponents;
+        private UnityVerseErrorHandler errorHandler;
+        private UIManager uiManager;
+        private OnScreenDebugLogger debugLogger;
         
-        // Platform detection
-        public bool IsQuestPlatform => Application.platform == RuntimePlatform.Android && IsVREnabled();
-        public bool IsMobilePlatform => (Application.platform == RuntimePlatform.Android && !IsVREnabled()) || 
-                                       Application.platform == RuntimePlatform.IPhonePlayer;
+        // State
+        private bool isInitialized = false;
+        private bool isConnecting = false;
+        private PeerRole detectedRole;
         
-        /// <summary>
-        /// Gets the current bridge mode based on platform
-        /// </summary>
-        public BridgeMode CurrentBridgeMode => IsQuestPlatform ? BridgeMode.Host : BridgeMode.Client;
+        // Events
+        public event Action OnConnected;
+        public event Action OnDisconnected;
+        public event Action<string> OnError;
         
-        /// <summary>
-        /// Gets the current bridge mode (alias for CurrentBridgeMode)
-        /// </summary>
-        public BridgeMode Mode => CurrentBridgeMode;
+        // Properties
+        public UnityVerseConfig Configuration => unityVerseConfig;
+        public ConnectionConfig ConnectionConfig => legacyConfig; // Backward compatibility
+        public bool IsConnected => webRtcManager != null && webRtcManager.IsSignalingConnected;
+        public PeerRole Role => detectedRole;
         
-        /// <summary>
-        /// Gets whether the bridge is initialized
-        /// </summary>
-        public bool IsInitialized => webRtcManager != null;
-        
-        /// <summary>
-        /// Gets the connection configuration
-        /// </summary>
-        public ConnectionConfig ConnectionConfig => configuration;
-        
-        // Quest-specific property accessors
-        public Camera QuestStreamCamera => vrCamera;
-        public RenderTexture QuestStreamTexture { get; set; }
-        public Canvas QuestTouchCanvas => touchCanvas;
-        
-        // Mobile-specific property accessors
-        public RawImage MobileVideoDisplay => videoDisplay;
-        public RectTransform MobileTouchArea { get; set; }
-        public Canvas MobileTouchFeedbackLayer { get; set; }
+        #region Unity Lifecycle
         
         void Awake()
         {
-            if (configuration == null)
+            // Ensure we have a configuration
+            if (unityVerseConfig == null && legacyConfig != null)
             {
-                Debug.LogError("[UnityVerseBridgeManager] ConnectionConfig is required!");
-                enabled = false;
+                // Convert legacy config to new format
+                ConvertLegacyConfig();
+            }
+            
+            if (unityVerseConfig == null)
+            {
+                Debug.LogError("[UnityVerseBridge] No configuration assigned!");
                 return;
             }
             
-            // Delay initialization to ensure XR systems are ready
-            StartCoroutine(DelayedInitialization());
+            // Initialize core components
+            InitializeComponents();
+            
+            // Detect role
+            detectedRole = unityVerseConfig.DetectedRole;
+            LogDebug($"Detected role: {detectedRole}");
         }
         
-        private IEnumerator DelayedInitialization()
+        void Start()
         {
-            // Wait a frame to ensure XR systems are initialized
-            yield return null;
-            
-            // Wait for XR to be fully initialized (up to 2 seconds)
-            float timeout = 2f;
-            float elapsed = 0f;
-            
-            while (elapsed < timeout)
+            if (unityVerseConfig != null && unityVerseConfig.autoConnect)
             {
-                // Check if XR is initialized
-                if (UnityEngine.XR.XRSettings.enabled || IsVREnabled())
-                {
-                    Debug.Log("[UnityVerseBridgeManager] XR system detected, proceeding with initialization");
+                StartCoroutine(DelayedConnect());
+            }
+        }
+        
+        void OnDestroy()
+        {
+            Disconnect();
+        }
+        
+        #endregion
+        
+        #region Initialization
+        
+        private void InitializeComponents()
+        {
+            // Error Handler
+            errorHandler = UnityVerseErrorHandler.Instance;
+            errorHandler.OnConnectionLost.AddListener(HandleConnectionLost);
+            errorHandler.OnConnectionRestored.AddListener(HandleConnectionRestored);
+            
+            // UI Manager
+            uiManager = UIManager.Instance;
+            if (showDebugUI)
+            {
+                uiManager.UpdateConnectionStatus("Initializing...", Color.yellow);
+            }
+            
+            // Debug Logger
+            if (unityVerseConfig.enableDebugLogging)
+            {
+                debugLogger = gameObject.AddComponent<OnScreenDebugLogger>();
+                debugLogger.displayMode = debugDisplayMode;
+                debugLogger.filterKeywords = new string[] { "UnityVerse", "WebRTC", detectedRole.ToString() };
+            }
+            
+            // WebRTC Manager
+            webRtcManager = GetComponent<WebRtcManager>();
+            if (webRtcManager == null)
+            {
+                webRtcManager = gameObject.AddComponent<WebRtcManager>();
+            }
+            
+            // Subscribe to WebRTC events
+            webRtcManager.OnSignalingConnected += HandleSignalingConnected;
+            webRtcManager.OnSignalingDisconnected += HandleSignalingDisconnected;
+            webRtcManager.OnSignalingError += HandleSignalingError;
+            webRtcManager.OnPeerConnectionEstablished += HandlePeerConnected;
+            webRtcManager.OnPeerConnectionFailed += HandlePeerConnectionFailed;
+            
+            // Initialize platform-specific components
+            StartCoroutine(InitializePlatformComponents());
+            
+            isInitialized = true;
+        }
+        
+        private IEnumerator InitializePlatformComponents()
+        {
+            // Wait for platform detection
+            yield return new WaitForSeconds(0.5f);
+            
+            switch (detectedRole)
+            {
+                case PeerRole.Host:
+                    InitializeHostComponents();
                     break;
-                }
-                
-                elapsed += Time.deltaTime;
-                yield return null;
+                    
+                case PeerRole.Client:
+                    InitializeClientComponents();
+                    break;
             }
             
-            // Auto-detect and set client type based on platform
-            if (IsQuestPlatform)
-            {
-                configuration.clientType = ClientType.Quest;
-                LogDebug("[UnityVerseBridgeManager] Detected Quest platform, setting clientType to Quest");
-            }
-            else if (IsMobilePlatform)
-            {
-                configuration.clientType = ClientType.Mobile;
-                LogDebug("[UnityVerseBridgeManager] Detected Mobile platform, setting clientType to Mobile");
-            }
-            else
-            {
-                LogDebug("[UnityVerseBridgeManager] Platform detection inconclusive, using configuration default");
-            }
-            
-            InitializeBridge();
+            LogDebug($"{detectedRole} components initialized");
         }
         
-        private void InitializeBridge()
+        private void InitializeHostComponents()
         {
-            // Create container for bridge components
-            bridgeComponents = new GameObject("BridgeComponents");
-            bridgeComponents.transform.SetParent(transform);
-            
-            // Add WebRtcManager
-            webRtcManager = bridgeComponents.AddComponent<WebRtcManager>();
-            
-            // Pass the connection configuration to WebRtcManager
-            if (webRtcManager != null)
+            // Find VR camera if not assigned
+            if (vrCamera == null)
             {
-                // Pass ConnectionConfig first
-                webRtcManager.SetConnectionConfig(configuration);
-                
-                // Then pass WebRtcConfiguration if available
-                if (webRtcConfiguration != null)
+                vrCamera = FindVRCamera();
+                if (vrCamera == null)
                 {
-                    webRtcManager.SetConfiguration(webRtcConfiguration);
+                    vrCamera = Camera.main;
+                    LogWarning("VR camera not found, using main camera");
                 }
             }
             
-            // Set debug logging
-            if (enableDebugLogging)
+            // Add Quest-specific extensions
+            if (GetComponent<Extensions.Quest.QuestVideoExtension>() == null)
             {
-                Debug.Log("[UnityVerseBridgeManager] Debug logging is enabled");
-                // Enable verbose logging for WebRTC components
-                Debug.unityLogger.logEnabled = true;
-                Debug.unityLogger.filterLogType = LogType.Log;
+                gameObject.AddComponent<Extensions.Quest.QuestVideoExtension>();
             }
             
-            // Initialize based on platform
-            if (IsQuestPlatform)
+            if (GetComponent<Extensions.Quest.QuestTouchExtension>() == null)
             {
-                InitializeQuestComponents();
+                gameObject.AddComponent<Extensions.Quest.QuestTouchExtension>();
             }
-            else if (IsMobilePlatform)
+            
+            if (GetComponent<Extensions.Quest.QuestHapticExtension>() == null)
             {
-                InitializeMobileComponents();
-            }
-            else
-            {
-                Debug.LogWarning("[UnityVerseBridgeManager] Platform not detected. Initializing based on assigned references.");
-                
-                // Initialize based on what references are assigned
-                if (vrCamera != null)
-                {
-                    InitializeQuestComponents();
-                }
-                else if (videoDisplay != null)
-                {
-                    InitializeMobileComponents();
-                }
+                gameObject.AddComponent<Extensions.Quest.QuestHapticExtension>();
             }
         }
         
-        private void InitializeQuestComponents()
+        private void InitializeClientComponents()
         {
-            LogDebug("[UnityVerseBridgeManager] Initializing Quest components");
-            
-            // Add QuestVideoExtension if video streaming is enabled
-            if (enableVideoStreaming)
+            // Find or create video display
+            if (videoDisplay == null)
             {
-                var videoExtension = bridgeComponents.AddComponent<Extensions.Quest.QuestVideoExtension>();
-                // Extension will automatically find the manager and camera
+                videoDisplay = FindVideoDisplay();
+                if (videoDisplay == null)
+                {
+                    LogWarning("Video display not found, creating one");
+                    CreateVideoDisplay();
+                }
             }
             
-            // Add QuestTouchExtension if touch receiving is enabled
-            if (enableTouchReceiving)
+            // Add Mobile-specific extensions
+            if (GetComponent<Extensions.Mobile.MobileVideoExtension>() == null)
             {
-                var touchExtension = bridgeComponents.AddComponent<Extensions.Quest.QuestTouchExtension>();
-                // Extension will automatically find the manager and canvas
+                gameObject.AddComponent<Extensions.Mobile.MobileVideoExtension>();
             }
             
-            // Add QuestHapticExtension if haptic feedback is enabled
-            if (enableHapticFeedback)
+            if (GetComponent<Extensions.Mobile.MobileInputExtension>() == null)
             {
-                var hapticExtension = bridgeComponents.AddComponent<Extensions.Quest.QuestHapticExtension>();
-                // Extension will automatically find the manager
-            }
-            
-            // Initialize WebRTC connection
-            StartCoroutine(InitializeWebRtcConnection());
-        }
-        
-        private void InitializeMobileComponents()
-        {
-            LogDebug("[UnityVerseBridgeManager] Initializing Mobile components");
-            
-            // Add MobileVideoExtension if video receiving is enabled
-            if (enableVideoReceiving)
-            {
-                var videoExtension = bridgeComponents.AddComponent<Extensions.Mobile.MobileVideoExtension>();
-                // Extension will automatically find the manager and display
-            }
-            
-            // Add MobileInputExtension if touch sending is enabled
-            if (enableTouchSending)
-            {
-                var inputExtension = bridgeComponents.AddComponent<Extensions.Mobile.MobileInputExtension>();
-                // Extension will automatically find the manager
-            }
-            
-            // Add MobileHapticExtension if haptic receiving is enabled
-            if (enableHapticReceiving)
-            {
-                var hapticExtension = bridgeComponents.AddComponent<Extensions.Mobile.MobileHapticExtension>();
-                // Extension will automatically find the manager
-            }
-            
-            // Add MobileConnectionUI if provided and auto-connect is disabled
-            if (connectionUI != null && !enableAutoConnect)
-            {
-                var connectionUIComponent = bridgeComponents.AddComponent<Extensions.Mobile.MobileConnectionUI>();
-                // Extension will automatically find the manager and UI
-            }
-            
-            // Initialize WebRTC connection
-            if (enableAutoConnect)
-            {
-                StartCoroutine(InitializeWebRtcConnection());
+                gameObject.AddComponent<Extensions.Mobile.MobileInputExtension>();
             }
         }
         
-        private bool IsVREnabled()
-        {
-            // Check multiple VR indicators
-            
-            // 1. Check XRSettings first (most reliable for runtime)
-            if (UnityEngine.XR.XRSettings.enabled && !string.IsNullOrEmpty(UnityEngine.XR.XRSettings.loadedDeviceName))
-            {
-                Debug.Log($"[UnityVerseBridgeManager] Detected VR through XRSettings: {UnityEngine.XR.XRSettings.loadedDeviceName}");
-                return true;
-            }
-            
-            // 2. Check if we have XR Management available
-#if UNITY_XR_MANAGEMENT
-            try
-            {
-                var xrSettings = UnityEngine.XR.Management.XRGeneralSettings.Instance;
-                if (xrSettings != null && xrSettings.Manager != null && xrSettings.Manager.activeLoader != null)
-                {
-                    Debug.Log("[UnityVerseBridgeManager] Detected VR through XR Management");
-                    return true;
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"[UnityVerseBridgeManager] XR Management check failed: {e.Message}");
-            }
-#endif
-            
-            // 3. Check for Quest-specific components using reflection
-            try
-            {
-                // Check for OVRManager
-                var ovrManagerType = System.Type.GetType("OVRManager, Oculus.VR");
-                if (ovrManagerType != null)
-                {
-                    var instanceProperty = ovrManagerType.GetProperty("instance", BindingFlags.Public | BindingFlags.Static);
-                    if (instanceProperty != null)
-                    {
-                        var instance = instanceProperty.GetValue(null);
-                        if (instance != null)
-                        {
-                            Debug.Log("[UnityVerseBridgeManager] Detected Quest VR through OVRManager");
-                            return true;
-                        }
-                    }
-                }
-                
-                // Check for OVRCameraRig in scene
-                var ovrCameraRigType = System.Type.GetType("OVRCameraRig, Oculus.VR");
-                if (ovrCameraRigType != null)
-                {
-                    var cameraRig = GameObject.FindFirstObjectByType(ovrCameraRigType);
-                    if (cameraRig != null)
-                    {
-                        Debug.Log("[UnityVerseBridgeManager] Detected Quest VR through OVRCameraRig in scene");
-                        return true;
-                    }
-                }
-                
-                // Check for MetaXRFeature
-                var metaXRFeatureType = System.Type.GetType("Meta.XR.MetaXRFeature, Meta.XR.Core.SDK");
-                if (metaXRFeatureType != null)
-                {
-                    Debug.Log("[UnityVerseBridgeManager] Detected MetaXRFeature type, assuming Quest VR");
-                    return true;
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"[UnityVerseBridgeManager] Error checking VR status: {e.Message}");
-            }
-            
-            // 4. Final fallback - check if we're on Android with Quest-like display
-            if (Application.platform == RuntimePlatform.Android)
-            {
-                // Check display refresh rate (Quest devices typically have 72Hz, 90Hz, or 120Hz)
-                float refreshRate = Screen.currentResolution.refreshRateRatio.value;
-                if (refreshRate >= 72f && refreshRate <= 120f)
-                {
-                    Debug.Log($"[UnityVerseBridgeManager] Detected possible Quest device based on Android + refresh rate: {refreshRate}Hz");
-                    return true;
-                }
-            }
-            
-            return false;
-        }
+        #endregion
         
-        // Public methods
+        #region Connection Management
+        
         public void Connect()
         {
-            if (!IsConnected)
+            if (!isInitialized)
             {
-                StartCoroutine(InitializeWebRtcConnection());
+                LogError("UnityVerseBridge not initialized");
+                return;
             }
+            
+            if (isConnecting || IsConnected)
+            {
+                LogWarning("Already connecting or connected");
+                return;
+            }
+            
+            StartCoroutine(ConnectCoroutine());
         }
         
         public void Disconnect()
@@ -379,148 +260,492 @@ namespace UnityVerseBridge.Core
             {
                 webRtcManager.Disconnect();
             }
-        }
-        
-        public void SetRoomId(string roomId)
-        {
-            if (configuration != null)
-            {
-                configuration.roomId = roomId;
-                // If using session room ID, reset it to use the new room ID
-                if (configuration.useSessionRoomId)
-                {
-                    configuration.ResetSessionRoomId();
-                }
-                LogDebug($"[UnityVerseBridgeManager] Room ID set to: {roomId}");
-            }
-        }
-        
-        // Properties
-        public bool IsConnected => webRtcManager != null && webRtcManager.IsWebRtcConnected;
-        public WebRtcManager WebRtcManager => webRtcManager;
-        
-        // WebRTC Connection initialization coroutine
-        private System.Collections.IEnumerator InitializeWebRtcConnection()
-        {
-            yield return new WaitForSeconds(0.5f); // Wait for components to initialize
             
-            if (webRtcManager != null && configuration != null)
+            isConnecting = false;
+            
+            if (showDebugUI)
             {
-                LogDebug("[UnityVerseBridgeManager] Starting WebRTC connection...");
-                
-                // Create signaling client based on platform
-                ISignalingClient signalingClient = null;
-                
-#if UNITY_WEBGL && !UNITY_EDITOR
-                // WebGL would use a different adapter
-                LogDebug("[UnityVerseBridgeManager] WebGL platform not supported yet");
+                uiManager.UpdateConnectionStatus("Disconnected", Color.red);
+            }
+        }
+        
+        private IEnumerator ConnectCoroutine()
+        {
+            isConnecting = true;
+            
+            if (showDebugUI)
+            {
+                uiManager.ShowLoading("Connecting...");
+                uiManager.UpdateConnectionStatus("Connecting...", Color.yellow);
+            }
+            
+            // Configure WebRTC
+            ConfigureWebRtc();
+            
+            // Get authentication token if required
+            if (unityVerseConfig.requireAuthentication)
+            {
+                yield return StartCoroutine(AuthenticateCoroutine());
+            }
+            
+            // Connect to signaling server
+            string url = BuildConnectionUrl();
+            LogDebug($"Connecting to: {url}");
+            
+            // Create appropriate WebSocket adapter
+            IWebSocketClient adapter = CreateWebSocketAdapter();
+            
+            var connectTask = webRtcManager.ConnectToSignaling(adapter, url);
+            yield return new WaitUntil(() => connectTask.IsCompleted);
+            
+            if (connectTask.Exception != null)
+            {
+                HandleConnectionError(connectTask.Exception);
+                isConnecting = false;
                 yield break;
-#else
-                // Use SystemWebSocketAdapter for most platforms
-                var adapter = new Signaling.Adapters.SystemWebSocketAdapter();
-                signalingClient = new SignalingClient();
-#endif
+            }
+            
+            // Register with server
+            yield return StartCoroutine(RegisterWithServer());
+            
+            isConnecting = false;
+            
+            if (showDebugUI)
+            {
+                uiManager.HideLoading();
+            }
+        }
+        
+        private IEnumerator DelayedConnect()
+        {
+            yield return new WaitForSeconds(1f);
+            Connect();
+        }
+        
+        #endregion
+        
+        #region Configuration
+        
+        private void ConvertLegacyConfig()
+        {
+            if (legacyConfig == null) return;
+            
+            // Create new config from legacy
+            unityVerseConfig = ScriptableObject.CreateInstance<UnityVerseConfig>();
+            unityVerseConfig.signalingUrl = legacyConfig.signalingServerUrl;
+            unityVerseConfig.roomId = legacyConfig.GetRoomId();
+            unityVerseConfig.requireAuthentication = legacyConfig.requireAuthentication;
+            unityVerseConfig.authKey = legacyConfig.authKey;
+            unityVerseConfig.connectionTimeout = legacyConfig.connectionTimeout;
+            unityVerseConfig.maxReconnectAttempts = legacyConfig.maxReconnectAttempts;
+            unityVerseConfig.enableDebugLogging = legacyConfig.enableDetailedLogging;
+            unityVerseConfig.autoConnect = enableAutoConnect;
+            
+            // Set role based on legacy client type
+            if (legacyConfig.clientType == ClientType.Quest)
+            {
+                unityVerseConfig.roleDetection = RoleDetectionMode.Manual;
+                unityVerseConfig.manualRole = PeerRole.Host;
+            }
+            else if (legacyConfig.clientType == ClientType.Mobile)
+            {
+                unityVerseConfig.roleDetection = RoleDetectionMode.Manual;
+                unityVerseConfig.manualRole = PeerRole.Client;
+            }
+            
+            LogDebug("Converted legacy ConnectionConfig to UnityVerseConfig");
+        }
+        
+        private void ConfigureWebRtc()
+        {
+            if (webRtcManager == null) return;
+            
+            // Set connection config for backward compatibility
+            if (legacyConfig != null)
+            {
+                webRtcManager.SetConnectionConfig(legacyConfig);
+            }
+            
+            // Configure based on new config
+            webRtcManager.SetDebugMode(unityVerseConfig.enableDebugLogging);
+            
+            // Set role
+            webRtcManager.SetPeerRole(detectedRole == PeerRole.Host);
+        }
+        
+        private string BuildConnectionUrl()
+        {
+            string baseUrl = unityVerseConfig.signalingUrl;
+            string roomId = unityVerseConfig.roomId;
+            
+            if (unityVerseConfig.autoGenerateRoomId)
+            {
+                roomId = GenerateRoomId();
+            }
+            
+            // Add query parameters
+            string url = $"{baseUrl}?clientType={detectedRole.ToString().ToLower()}&roomId={roomId}";
+            
+            // Add token if we have one
+            if (!string.IsNullOrEmpty(authToken))
+            {
+                url += $"&token={authToken}";
+            }
+            
+            return url;
+        }
+        
+        private IWebSocketClient CreateWebSocketAdapter()
+        {
+            // Use platform-appropriate adapter
+            #if UNITY_WEBGL
+                return new Signaling.Adapters.WebGLWebSocketAdapter();
+            #else
+                return new Signaling.Adapters.SystemWebSocketAdapter();
+            #endif
+        }
+        
+        #endregion
+        
+        #region Authentication
+        
+        private string authToken;
+        
+        private IEnumerator AuthenticateCoroutine()
+        {
+            string authUrl = unityVerseConfig.signalingUrl
+                .Replace("ws://", "http://")
+                .Replace("wss://", "https://") + "/auth";
+            
+            var authRequest = new AuthRequest
+            {
+                clientId = GenerateClientId(),
+                clientType = detectedRole.ToString().ToLower(),
+                authKey = unityVerseConfig.authKey
+            };
+            
+            string jsonPayload = JsonUtility.ToJson(authRequest);
+            
+            using (var request = new UnityEngine.Networking.UnityWebRequest(authUrl, "POST"))
+            {
+                byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonPayload);
+                request.uploadHandler = new UnityEngine.Networking.UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new UnityEngine.Networking.DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
                 
-                if (signalingClient != null)
+                yield return request.SendWebRequest();
+                
+                if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
                 {
-                    webRtcManager.SetupSignaling(signalingClient);
+                    var response = JsonUtility.FromJson<AuthResponse>(request.downloadHandler.text);
+                    authToken = response.token;
+                    LogDebug("Authentication successful");
+                }
+                else
+                {
+                    string error = $"Authentication failed: {request.error}";
+                    LogError(error);
+                    errorHandler.ReportError(UnityVerseErrorHandler.ErrorType.Authentication, error);
                     
-                    // Determine client type first
-                    string clientType = IsQuestPlatform ? "quest" : "mobile";
-                    
-                    // Connect to signaling server
-                    // Add query parameters for better debugging
-                    string serverUrl = configuration.signalingServerUrl;
-                    if (!serverUrl.Contains("?"))
+                    if (showDebugUI)
                     {
-                        serverUrl += "?";
-                    }
-                    else
-                    {
-                        serverUrl += "&";
-                    }
-                    serverUrl += $"clientType={clientType}&roomId={configuration.GetRoomId()}";
-                    
-                    LogDebug($"[UnityVerseBridgeManager] Connecting to: {serverUrl}");
-                    var connectTask = signalingClient.InitializeAndConnect(adapter, serverUrl);
-                    yield return new WaitUntil(() => connectTask.IsCompleted);
-                    
-                    if (connectTask.Exception != null)
-                    {
-                        Debug.LogError($"[UnityVerseBridgeManager] Failed to connect: {connectTask.Exception}");
-                        yield break;
-                    }
-                    
-                    // Register client
-                    string peerId = $"{clientType}_{System.Guid.NewGuid().ToString().Substring(0, 16)}";
-                    
-                    // Get room ID
-                    string roomId = configuration.GetRoomId();
-                    if (string.IsNullOrEmpty(roomId))
-                    {
-                        Debug.LogError("[UnityVerseBridgeManager] Room ID is empty! Using default.");
-                        roomId = "default-room";
-                    }
-                    
-                    var registerMessage = new Signaling.Messages.RegisterMessage
-                    {
-                        peerId = peerId,
-                        clientType = clientType,
-                        roomId = roomId
-                    };
-                    
-                    LogDebug($"[UnityVerseBridgeManager] Sending register message: peerId={peerId}, clientType={clientType}, roomId={roomId}");
-                    signalingClient.SendMessage(registerMessage);
-                    LogDebug($"[UnityVerseBridgeManager] Register message sent successfully");
-                    
-                    // For Quest (Offerer), create peer connection immediately
-                    if (IsQuestPlatform)
-                    {
-                        yield return new WaitForSeconds(0.5f);
-                        webRtcManager.StartPeerConnection();
+                        uiManager.ShowError("Authentication failed. Please check your credentials.", 5f);
                     }
                 }
             }
         }
         
-        // Debug logging helper
-        private void LogDebug(string message)
+        #endregion
+        
+        #region Server Registration
+        
+        private IEnumerator RegisterWithServer()
         {
-            if (enableDebugLogging)
+            string peerId = GenerateClientId();
+            
+            var registerMessage = new Signaling.Messages.RegisterMessage
             {
-                Debug.Log(message);
+                peerId = peerId,
+                clientType = detectedRole.ToString().ToLower(),
+                roomId = unityVerseConfig.roomId
+            };
+            
+            webRtcManager.SendSignalingMessage(registerMessage);
+            
+            LogDebug($"Registered as {detectedRole} with ID: {peerId}");
+            
+            // For clients, send ready message after a short delay
+            if (detectedRole == PeerRole.Client)
+            {
+                yield return new WaitForSeconds(0.5f);
+                
+                var readyMessage = new Signaling.Data.ClientReadyMessage
+                {
+                    type = "client-ready",
+                    peerId = peerId
+                };
+                
+                webRtcManager.SendSignalingMessage(readyMessage);
+                LogDebug("Sent client-ready message");
+            }
+            
+            yield return null;
+        }
+        
+        #endregion
+        
+        #region Event Handlers
+        
+        private void HandleSignalingConnected()
+        {
+            LogDebug("Signaling connected");
+            
+            if (showDebugUI)
+            {
+                uiManager.UpdateConnectionStatus($"Connected ({detectedRole})", Color.green);
+            }
+            
+            OnConnected?.Invoke();
+        }
+        
+        private void HandleSignalingDisconnected()
+        {
+            LogWarning("Signaling disconnected");
+            
+            if (showDebugUI)
+            {
+                uiManager.UpdateConnectionStatus("Disconnected", Color.red);
+            }
+            
+            OnDisconnected?.Invoke();
+            errorHandler.ReportConnectionLost();
+        }
+        
+        private void HandleSignalingError(string error)
+        {
+            LogError($"Signaling error: {error}");
+            OnError?.Invoke(error);
+            
+            errorHandler.ReportError(UnityVerseErrorHandler.ErrorType.Network, error);
+        }
+        
+        private void HandlePeerConnected()
+        {
+            LogDebug("Peer connection established");
+            
+            if (showDebugUI)
+            {
+                uiManager.UpdateConnectionStatus($"Streaming ({detectedRole})", Color.green);
             }
         }
         
-        // Helper methods for reflection
-        private Type GetTypeByName(string typeName, string namespaceName)
+        private void HandlePeerConnectionFailed(string error)
         {
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            LogError($"Peer connection failed: {error}");
+            
+            errorHandler.ReportError(UnityVerseErrorHandler.ErrorType.Connection, error);
+        }
+        
+        private void HandleConnectionLost()
+        {
+            if (unityVerseConfig.maxReconnectAttempts > 0)
             {
-                var type = assembly.GetType($"{namespaceName}.{typeName}");
-                if (type != null) return type;
+                LogDebug("Connection lost, attempting to reconnect...");
             }
-            Debug.LogWarning($"[UnityVerseBridgeManager] Type {namespaceName}.{typeName} not found. Make sure the required packages are imported.");
+        }
+        
+        private void HandleConnectionRestored()
+        {
+            LogDebug("Connection restored");
+            
+            if (showDebugUI)
+            {
+                uiManager.UpdateConnectionStatus($"Connected ({detectedRole})", Color.green);
+            }
+        }
+        
+        private void HandleConnectionError(Exception exception)
+        {
+            string error = exception.InnerException?.Message ?? exception.Message;
+            LogError($"Connection failed: {error}");
+            
+            errorHandler.ReportError(UnityVerseErrorHandler.ErrorType.Connection, error, exception);
+            
+            if (showDebugUI)
+            {
+                uiManager.HideLoading();
+                uiManager.ShowError($"Connection failed: {error}", 5f);
+                uiManager.UpdateConnectionStatus("Connection Failed", Color.red);
+            }
+        }
+        
+        #endregion
+        
+        #region Helper Methods
+        
+        private Camera FindVRCamera()
+        {
+            // Look for common VR camera setups
+            string[] vrCameraNames = { "CenterEyeAnchor", "Main Camera", "Head", "Camera (eye)" };
+            
+            foreach (string name in vrCameraNames)
+            {
+                GameObject cameraObj = GameObject.Find(name);
+                if (cameraObj != null)
+                {
+                    Camera cam = cameraObj.GetComponent<Camera>();
+                    if (cam != null && cam.stereoEnabled)
+                    {
+                        return cam;
+                    }
+                }
+            }
+            
+            // Check for OVRCameraRig
+            try
+            {
+                var ovrCameraRigType = System.Type.GetType("OVRCameraRig, Oculus.VR");
+                if (ovrCameraRigType != null)
+                {
+                    var rig = FindObjectOfType(ovrCameraRigType);
+                    if (rig != null)
+                    {
+                        Camera[] cameras = (rig as Component).GetComponentsInChildren<Camera>();
+                        if (cameras.Length > 0)
+                        {
+                            return cameras[0];
+                        }
+                    }
+                }
+            }
+            catch { }
+            
             return null;
         }
         
-        private void SetFieldValue(Component component, string fieldName, object value)
+        private RawImage FindVideoDisplay()
         {
-            if (component == null) return;
-            
-            var field = component.GetType().GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (field != null)
+            // Look for existing video display
+            RawImage[] rawImages = FindObjectsOfType<RawImage>();
+            foreach (var img in rawImages)
             {
-                field.SetValue(component, value);
-            }
-            else
-            {
-                var property = component.GetType().GetProperty(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (property != null && property.CanWrite)
+                if (img.name.ToLower().Contains("video") || img.name.ToLower().Contains("stream"))
                 {
-                    property.SetValue(component, value);
+                    return img;
                 }
             }
+            
+            return null;
         }
+        
+        private void CreateVideoDisplay()
+        {
+            Canvas canvas = uiManager.GetMainCanvas();
+            
+            GameObject displayObj = new GameObject("VideoDisplay");
+            displayObj.transform.SetParent(canvas.transform, false);
+            
+            RectTransform rect = displayObj.AddComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            
+            videoDisplay = displayObj.AddComponent<RawImage>();
+            videoDisplay.color = Color.black;
+            
+            uiManager.TrackGameObject(displayObj);
+        }
+        
+        private string GenerateRoomId()
+        {
+            return $"{detectedRole.ToString().ToLower()}-{UnityEngine.Random.Range(1000, 9999)}";
+        }
+        
+        private string GenerateClientId()
+        {
+            return $"{detectedRole.ToString().ToLower()}_{DateTimeOffset.Now.ToUnixTimeMilliseconds()}_{UnityEngine.Random.Range(1000, 9999):x}";
+        }
+        
+        #endregion
+        
+        #region Public API
+        
+        public void SetRoomId(string roomId)
+        {
+            if (unityVerseConfig != null)
+            {
+                unityVerseConfig.roomId = roomId;
+                unityVerseConfig.autoGenerateRoomId = false;
+            }
+            
+            if (legacyConfig != null)
+            {
+                legacyConfig.roomId = roomId;
+                legacyConfig.useSessionRoomId = false;
+            }
+        }
+        
+        public void SetCamera(Camera camera)
+        {
+            vrCamera = camera;
+        }
+        
+        public void SetVideoDisplay(RawImage display)
+        {
+            videoDisplay = display;
+        }
+        
+        public Camera GetVRCamera()
+        {
+            return vrCamera;
+        }
+        
+        public RawImage GetVideoDisplay()
+        {
+            return videoDisplay;
+        }
+        
+        #endregion
+        
+        #region Logging
+        
+        private void LogDebug(string message)
+        {
+            if (unityVerseConfig != null && unityVerseConfig.enableDebugLogging)
+            {
+                Debug.Log($"[UnityVerseBridge] {message}");
+            }
+        }
+        
+        private void LogWarning(string message)
+        {
+            Debug.LogWarning($"[UnityVerseBridge] {message}");
+        }
+        
+        private void LogError(string message)
+        {
+            Debug.LogError($"[UnityVerseBridge] {message}");
+        }
+        
+        #endregion
+        
+        #region Data Classes
+        
+        [System.Serializable]
+        private class AuthRequest
+        {
+            public string clientId;
+            public string clientType;
+            public string authKey;
+        }
+        
+        [System.Serializable]
+        private class AuthResponse
+        {
+            public string token;
+        }
+        
+        #endregion
     }
 }
