@@ -62,13 +62,46 @@ namespace UnityVerseBridge.Core
             if (autoSetupCamera && streamCamera == null)
             {
                 #if UNITY_ANDROID && !UNITY_EDITOR
-                // Quest platform - find OVR camera
-                var cameraRig = FindFirstObjectByType<OVRCameraRig>();
-                if (cameraRig != null)
+                // Quest platform - find OVR camera using reflection
+                try
                 {
-                    streamCamera = useMixedReality && cameraRig.trackingSpace != null ? 
-                        cameraRig.trackingSpace.GetComponentInChildren<Camera>() : 
-                        cameraRig.centerEyeAnchor.GetComponent<Camera>();
+                    var ovrCameraRigType = System.Type.GetType("OVRCameraRig, Oculus.VR");
+                    if (ovrCameraRigType != null)
+                    {
+                        var cameraRig = FindFirstObjectByType(ovrCameraRigType);
+                        if (cameraRig != null)
+                        {
+                            if (useMixedReality)
+                            {
+                                var trackingSpaceProp = ovrCameraRigType.GetProperty("trackingSpace");
+                                if (trackingSpaceProp != null)
+                                {
+                                    var trackingSpace = trackingSpaceProp.GetValue(cameraRig) as Transform;
+                                    if (trackingSpace != null)
+                                    {
+                                        streamCamera = trackingSpace.GetComponentInChildren<Camera>();
+                                    }
+                                }
+                            }
+                            
+                            if (streamCamera == null)
+                            {
+                                var centerEyeAnchorProp = ovrCameraRigType.GetProperty("centerEyeAnchor");
+                                if (centerEyeAnchorProp != null)
+                                {
+                                    var centerEyeTransform = centerEyeAnchorProp.GetValue(cameraRig) as Transform;
+                                    if (centerEyeTransform != null)
+                                    {
+                                        streamCamera = centerEyeTransform.GetComponent<Camera>();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogWarning($"[VideoStreamHandler] Failed to find OVRCameraRig: {e.Message}");
                 }
                 #else
                 streamCamera = Camera.main;

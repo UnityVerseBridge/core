@@ -279,17 +279,8 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                     else
                     {
                         // 구형 Android는 패턴으로 강도 시뮬레이션
-                        // 구형 Android에서는 항상 패턴 사용
-                        if (true)
-                        {
-                            long[] pattern = CreateVibratePattern(durationMs, intensity);
-                            vibrator.Call("vibrate", pattern, -1);
-                        }
-                        else
-                        {
-                            // 단순 진동
-                            vibrator.Call("vibrate", (long)durationMs);
-                        }
+                        long[] pattern = CreateVibratePattern(durationMs, intensity);
+                        vibrator.Call("vibrate", pattern, -1);
                     }
                 }
             }

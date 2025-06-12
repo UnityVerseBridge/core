@@ -4,7 +4,8 @@
     "references": [
         "Unity.WebRTC",
         "Unity.TextMeshPro",
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        ""
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

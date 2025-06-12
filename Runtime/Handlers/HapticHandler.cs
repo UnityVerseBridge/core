@@ -36,6 +36,7 @@ namespace UnityVerseBridge.Core
         private UnityVerseBridgeManager bridgeManager;
         private WebRtcManager webRtcManager;
         private UnityVerseBridgeManager.BridgeMode mode;
+        private bool useCustomPatterns = true; // Add this missing variable
         
 #if UNITY_ANDROID && !UNITY_EDITOR
         private AndroidJavaObject vibrator;

@@ -115,10 +115,30 @@ namespace UnityVerseBridge.Core
             if (vrCamera == null)
             {
                 #if UNITY_ANDROID && !UNITY_EDITOR
-                var cameraRig = FindFirstObjectByType<OVRCameraRig>();
-                if (cameraRig != null)
+                // Use reflection to avoid direct OVRCameraRig dependency
+                try
                 {
-                    vrCamera = cameraRig.centerEyeAnchor.GetComponent<Camera>();
+                    var ovrCameraRigType = System.Type.GetType("OVRCameraRig, Oculus.VR");
+                    if (ovrCameraRigType != null)
+                    {
+                        var cameraRig = FindFirstObjectByType(ovrCameraRigType);
+                        if (cameraRig != null)
+                        {
+                            var centerEyeAnchorProp = ovrCameraRigType.GetProperty("centerEyeAnchor");
+                            if (centerEyeAnchorProp != null)
+                            {
+                                var centerEyeTransform = centerEyeAnchorProp.GetValue(cameraRig) as Transform;
+                                if (centerEyeTransform != null)
+                                {
+                                    vrCamera = centerEyeTransform.GetComponent<Camera>();
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogWarning($"[TouchInputHandler] Failed to find OVRCameraRig: {e.Message}");
                 }
                 #else
                 vrCamera = Camera.main;
