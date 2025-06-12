@@ -46,37 +46,16 @@ namespace UnityVerseBridge.Core.Utils
             #if UNITY_EDITOR
             yield return new WaitForSeconds(1f);
             
-            // Log WebRTC capabilities
-            try
-            {
-                // GetEncoderType may not be available in all Unity WebRTC versions
-                var encoderTypeMethod = typeof(WebRTC).GetMethod("GetEncoderType");
-                if (encoderTypeMethod != null)
-                {
-                    var encoderType = encoderTypeMethod.Invoke(null, null);
-                    Debug.Log($"[WebRTCEditorHelper] WebRTC Encoder Type: {encoderType}");
-                }
-                else
-                {
-                    Debug.Log("[WebRTCEditorHelper] WebRTC encoder type info not available in this version");
-                }
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogWarning($"[WebRTCEditorHelper] Could not get encoder type: {e.Message}");
-            }
+            // Simple diagnostic log
+            Debug.Log("[WebRTCEditorHelper] WebRTC diagnostics check completed");
             
-            // Check if hardware encoding is available
+            // Check available video codecs without causing compilation errors
             try
             {
                 var capabilities = RTCRtpSender.GetCapabilities(TrackKind.Video);
                 if (capabilities != null && capabilities.codecs != null)
                 {
                     Debug.Log($"[WebRTCEditorHelper] Available video codecs: {capabilities.codecs.Length}");
-                    foreach (var codec in capabilities.codecs)
-                    {
-                        Debug.Log($"  - {codec.mimeType}");
-                    }
                 }
             }
             catch (System.Exception e)
