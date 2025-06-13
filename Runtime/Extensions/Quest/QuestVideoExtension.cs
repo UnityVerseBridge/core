@@ -23,7 +23,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         [SerializeField] private RenderTexture renderTexture;
         
         [Header("Stream Settings")]
-        [SerializeField] private Vector2Int streamResolution = new Vector2Int(640, 360);
+        [SerializeField] private Vector2Int streamResolution = new Vector2Int(1280, 720);
         [SerializeField] private bool autoCreateRenderTexture = true;
         
         [Header("Quest MR Settings")]

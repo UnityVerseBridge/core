@@ -13,9 +13,9 @@ namespace UnityVerseBridge.Core.Extensions.Quest
     public class QuestTouchExtension : MonoBehaviour
     {
         [Header("Touch Display Settings")]
-        [SerializeField] private Canvas touchCanvas;
+        [SerializeField] private Canvas touchCanvas; // DEPRECATED - use TouchVisualizer component
         [SerializeField] private GameObject touchPointerPrefab;
-        [SerializeField] private bool createDefaultCanvas = true;
+        [SerializeField] private bool createDefaultCanvas = false; // Disabled by default - use TouchVisualizer
         
         [Header("Visualization")]
         [SerializeField] private float pointerSize = 50f;
@@ -41,6 +41,8 @@ namespace UnityVerseBridge.Core.Extensions.Quest
         
         [Header("Debug")]
         [SerializeField] private bool debugMode = false;
+        
+        private bool IsDebugEnabled => debugMode;
 
         private UnityVerseBridgeManager bridgeManager;
         private WebRtcManager webRtcManager;
@@ -100,9 +102,10 @@ namespace UnityVerseBridge.Core.Extensions.Quest
                 // Debug.Log("[QuestTouchExtension] Using Touch Canvas from UnityVerseBridgeManager");
             }
             
-            // Setup canvas
+            // DEPRECATED: Touch visualization is now handled by TouchVisualizer component
             if (createDefaultCanvas && touchCanvas == null)
             {
+                Debug.LogWarning("[QuestTouchExtension] createDefaultCanvas is deprecated. Use TouchVisualizer component instead for better touch visualization.");
                 CreateDefaultCanvas();
             }
 
@@ -210,7 +213,7 @@ namespace UnityVerseBridge.Core.Extensions.Quest
 
         private void CreateDefaultCanvas()
         {
-            GameObject canvasObject = new GameObject("Touch Display Canvas");
+            GameObject canvasObject = new GameObject("QuestTouchCanvas_DEPRECATED");
             touchCanvas = canvasObject.AddComponent<Canvas>();
             touchCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
             touchCanvas.sortingOrder = 100;
@@ -220,11 +223,12 @@ namespace UnityVerseBridge.Core.Extensions.Quest
             scaler.referenceResolution = new Vector2(1920, 1080);
             
             canvasObject.AddComponent<GraphicRaycaster>();
+            Debug.LogWarning("[QuestTouchExtension] Created deprecated touch canvas. Use TouchVisualizer component instead.");
         }
 
         private void CreateDefaultPointerPrefab()
         {
-            touchPointerPrefab = new GameObject("Touch Pointer Prefab");
+            touchPointerPrefab = new GameObject("QuestTouchPointer_DEPRECATED");
             
             // Pointer image
             Image pointerImage = touchPointerPrefab.AddComponent<Image>();

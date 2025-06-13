@@ -7,6 +7,7 @@ using UnityEngine.UI;
 using UnityVerseBridge.Core.Signaling;
 using UnityVerseBridge.Core.UI;
 using UnityVerseBridge.Core.Utils;
+using UnityVerseBridge.Core.Configuration;
 
 namespace UnityVerseBridge.Core
 {
@@ -54,6 +55,10 @@ namespace UnityVerseBridge.Core
         [SerializeField] private UnityVerseConfig unityVerseConfig;
         [SerializeField] private ConnectionConfig legacyConfig; // For backward compatibility
         
+        [Header("Touch Visualization")]
+        [SerializeField] private TouchVisualizationConfig touchVisualizationConfig;
+        [SerializeField] private bool autoCreateTouchVisualizer = true;
+        
         [Header("Platform-Specific References")]
         [SerializeField] private Camera vrCamera; // Quest only
         [SerializeField] private RawImage videoDisplay; // Mobile only
@@ -62,7 +67,7 @@ namespace UnityVerseBridge.Core
         [SerializeField] private GameObject mobileTouchFeedbackLayer; // Mobile only - visual feedback
         
         [Header("Debug")]
-        [SerializeField] private bool showDebugUI = true;
+        [SerializeField] private bool showDebugUI = false;
         [SerializeField] private OnScreenDebugLogger.DisplayMode debugDisplayMode = OnScreenDebugLogger.DisplayMode.GUI;
         [SerializeField] private bool enableAutoConnect = true; // Missing field for auto connection
         
@@ -272,6 +277,33 @@ namespace UnityVerseBridge.Core
                 }
             }
             
+            // Add TouchInputHandler for receiving touch input
+            var touchHandler = GetComponent<TouchInputHandler>();
+            if (touchHandler == null)
+            {
+                touchHandler = gameObject.AddComponent<TouchInputHandler>();
+                LogDebug("TouchInputHandler added for receiving touch input");
+            }
+            
+            // Initialize TouchInputHandler after WebRtcManager is ready
+            if (touchHandler != null && webRtcManager != null)
+            {
+                touchHandler.Initialize(this, webRtcManager, BridgeMode.Host);
+                LogDebug("TouchInputHandler initialized for Host mode");
+            }
+            
+            // Add TouchVisualizer if configured
+            if (autoCreateTouchVisualizer && touchVisualizationConfig != null)
+            {
+                var touchVisualizer = GetComponent<Visualization.TouchVisualizer>();
+                if (touchVisualizer == null)
+                {
+                    touchVisualizer = gameObject.AddComponent<Visualization.TouchVisualizer>();
+                    touchVisualizer.Initialize(this, touchVisualizationConfig);
+                    LogDebug("TouchVisualizer added for Host mode");
+                }
+            }
+            
             // Add Quest-specific extensions
             if (GetComponent<Extensions.Quest.QuestVideoExtension>() == null)
             {
@@ -299,6 +331,33 @@ namespace UnityVerseBridge.Core
                 {
                     LogWarning("Video display not found, creating one");
                     CreateVideoDisplay();
+                }
+            }
+            
+            // Add TouchInputHandler for sending touch input
+            var touchHandler = GetComponent<TouchInputHandler>();
+            if (touchHandler == null)
+            {
+                touchHandler = gameObject.AddComponent<TouchInputHandler>();
+                LogDebug("TouchInputHandler added for sending touch input");
+            }
+            
+            // Initialize TouchInputHandler after WebRtcManager is ready
+            if (touchHandler != null && webRtcManager != null)
+            {
+                touchHandler.Initialize(this, webRtcManager, BridgeMode.Client);
+                LogDebug("TouchInputHandler initialized for Client mode");
+            }
+            
+            // Add TouchVisualizer if configured for Client mode
+            if (autoCreateTouchVisualizer && touchVisualizationConfig != null)
+            {
+                var touchVisualizer = GetComponent<Visualization.TouchVisualizer>();
+                if (touchVisualizer == null)
+                {
+                    touchVisualizer = gameObject.AddComponent<Visualization.TouchVisualizer>();
+                    touchVisualizer.Initialize(this, touchVisualizationConfig);
+                    LogDebug("TouchVisualizer added for Client mode");
                 }
             }
             

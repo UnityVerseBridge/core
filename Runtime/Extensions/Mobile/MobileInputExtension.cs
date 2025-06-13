@@ -29,7 +29,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
         
         [Header("Debug")]
         [SerializeField] private bool debugMode = false;
-        [SerializeField] private bool showTouchVisualizer = false;
+        [SerializeField] private bool showTouchVisualizer = false; // DEPRECATED - use TouchVisualizer component instead
         
         private UnityVerseBridgeManager bridgeManager;
         private WebRtcManager webRtcManager;
@@ -115,9 +115,10 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                 }
             }
 
-            // Touch visualizer 초기화
+            // DEPRECATED: Touch visualization is now handled by TouchVisualizer component
             if (showTouchVisualizer)
             {
+                Debug.LogWarning("[MobileInputExtension] showTouchVisualizer is deprecated. Use TouchVisualizer component instead.");
                 InitializeTouchVisualizers();
             }
 
@@ -211,6 +212,11 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
 
                 if (debugMode)
                 {
+                    if (touchData.phase == TouchPhase.Began)
+                    {
+                        Debug.Log($"[MobileInputExtension] Screen Resolution: {Screen.width}x{Screen.height}");
+                        Debug.Log($"[MobileInputExtension] Original Touch Position: {touch.screenPosition}");
+                    }
                     Debug.Log($"[MobileInputExtension] Sending touch {touchData.touchId}: " +
                              $"({touchData.positionX:F3}, {touchData.positionY:F3}) - {touchData.phase}");
                 }
@@ -263,13 +269,14 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             // If no parent specified, create a canvas for touch visualization
             if (parent == null)
             {
-                GameObject canvasGO = new GameObject("TouchVisualizerCanvas");
+                GameObject canvasGO = new GameObject("MobileTouchCanvas_DEPRECATED");
                 Canvas canvas = canvasGO.AddComponent<Canvas>();
                 canvas.renderMode = RenderMode.ScreenSpaceOverlay;
                 canvas.sortingOrder = 999; // On top of everything
                 canvasGO.AddComponent<UnityEngine.UI.CanvasScaler>();
                 canvasGO.AddComponent<UnityEngine.UI.GraphicRaycaster>();
                 parent = canvas.transform;
+                Debug.LogWarning("[MobileInputExtension] Creating deprecated touch canvas. Use TouchVisualizer component instead.");
             }
             
             // Check if we have a touch feedback prefab
@@ -282,7 +289,7 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
                 image.sprite = CreateCircleSprite();
                 image.raycastTarget = false;
                 var rect = prefabToUse.GetComponent<RectTransform>();
-                rect.sizeDelta = new Vector2(100, 100);
+                rect.sizeDelta = new Vector2(200, 200); // 크기를 2배로
             }
             
             for (int i = 0; i < maxTouchCount; i++)
@@ -317,8 +324,8 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
             visualizer.SetActive(true);
             visualizer.transform.position = screenPosition;
             
-            // Scale based on phase
-            float scale = phase == UnityEngine.InputSystem.TouchPhase.Began ? 1.2f : 1.0f;
+            // Scale based on phase - 크기 2배로
+            float scale = phase == UnityEngine.InputSystem.TouchPhase.Began ? 2.4f : 2.0f;
             visualizer.transform.localScale = Vector3.one * scale;
             
             // Fade out on end
@@ -337,12 +344,12 @@ namespace UnityVerseBridge.Core.Extensions.Mobile
         private Sprite CreateCircleSprite()
         {
             // Create a simple circle texture
-            int size = 64;
+            int size = 128; // 텍스처 크기도 2배로
             Texture2D texture = new Texture2D(size, size);
             Color[] pixels = new Color[size * size];
             
             Vector2 center = new Vector2(size / 2f, size / 2f);
-            float radius = size / 2f - 2;
+            float radius = size / 2f - 4; // 경계를 조금 더 부드럽게
             
             for (int y = 0; y < size; y++)
             {

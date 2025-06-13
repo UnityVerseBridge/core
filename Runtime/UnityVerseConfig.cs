@@ -34,7 +34,7 @@ namespace UnityVerseBridge.Core
         public VideoQualityPreset videoQuality = VideoQualityPreset.HD720p;
         
         [Tooltip("Custom resolution (when videoQuality is Custom)")]
-        public Vector2Int customResolution = new Vector2Int(640, 360);
+        public Vector2Int customResolution = new Vector2Int(1280, 720);
         
         [Tooltip("Target framerate for video streaming")]
         [Range(15, 60)]
@@ -146,10 +146,12 @@ namespace UnityVerseBridge.Core
                 roomId = "default-room";
             }
             
-            if (customResolution.x < 320) customResolution.x = 320;
-            if (customResolution.y < 240) customResolution.y = 240;
-            if (customResolution.x > 3840) customResolution.x = 3840;
-            if (customResolution.y > 2160) customResolution.y = 2160;
+            // Resolution validation - only clamp when focus is lost or values are extreme
+            // This allows users to type intermediate values while editing
+            if (customResolution.x <= 0) customResolution.x = 320;
+            if (customResolution.y <= 0) customResolution.y = 240;
+            if (customResolution.x > 10000) customResolution.x = 3840;
+            if (customResolution.y > 10000) customResolution.y = 2160;
         }
     }
     

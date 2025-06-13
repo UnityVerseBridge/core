@@ -15,6 +15,10 @@ namespace UnityVerseBridge.Core.Editor
         private SerializedProperty debugDisplayMode;
         private SerializedProperty enableAutoConnect;
         
+        // Touch Visualization
+        private SerializedProperty touchVisualizationConfig;
+        private SerializedProperty autoCreateTouchVisualizer;
+        
         // Quest-specific properties
         private SerializedProperty vrCamera;
         private SerializedProperty enableVideoStreaming;
@@ -28,6 +32,8 @@ namespace UnityVerseBridge.Core.Editor
         private SerializedProperty enableTouchSending;
         private SerializedProperty enableHapticReceiving;
         private SerializedProperty connectionUI;
+        private SerializedProperty mobileTouchArea;
+        private SerializedProperty mobileTouchFeedbackLayer;
         
         // Platform detection
         private bool isQuestPlatform;
@@ -46,12 +52,18 @@ namespace UnityVerseBridge.Core.Editor
             debugDisplayMode = serializedObject.FindProperty("debugDisplayMode");
             enableAutoConnect = serializedObject.FindProperty("enableAutoConnect");
             
+            // Touch Visualization properties
+            touchVisualizationConfig = serializedObject.FindProperty("touchVisualizationConfig");
+            autoCreateTouchVisualizer = serializedObject.FindProperty("autoCreateTouchVisualizer");
+            
             // Quest-specific properties
             vrCamera = serializedObject.FindProperty("vrCamera");
             touchCanvas = serializedObject.FindProperty("questTouchCanvas");
             
             // Mobile-specific properties
             videoDisplay = serializedObject.FindProperty("videoDisplay");
+            mobileTouchArea = serializedObject.FindProperty("mobileTouchArea");
+            mobileTouchFeedbackLayer = serializedObject.FindProperty("mobileTouchFeedbackLayer");
             
             // These properties don't exist in UnityVerseBridgeManager, comment them out for now
             // enableVideoStreaming = serializedObject.FindProperty("enableVideoStreaming");
@@ -208,6 +220,22 @@ namespace UnityVerseBridge.Core.Editor
             EditorGUILayout.LabelField("Common Settings", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(unityVerseConfig);
             
+            if (unityVerseConfig.objectReferenceValue == null)
+            {
+                EditorGUILayout.HelpBox("No configuration assigned! Create one using Assets > Create > UnityVerseBridge > UnityVerse Config", MessageType.Warning);
+                
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("Create Quest Config"))
+                {
+                    CreateAndAssignConfig(true);
+                }
+                if (GUILayout.Button("Create Mobile Config"))
+                {
+                    CreateAndAssignConfig(false);
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+            
             // Legacy config - only show if it has a value
             if (legacyConfig.objectReferenceValue != null)
             {
@@ -236,6 +264,25 @@ namespace UnityVerseBridge.Core.Editor
                     "OK");
             }
             EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.Space();
+            
+            // Touch Visualization Settings
+            EditorGUILayout.LabelField("Touch Visualization", EditorStyles.boldLabel);
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.PropertyField(touchVisualizationConfig);
+            EditorGUILayout.PropertyField(autoCreateTouchVisualizer);
+            
+            if (touchVisualizationConfig.objectReferenceValue == null && autoCreateTouchVisualizer.boolValue)
+            {
+                EditorGUILayout.HelpBox("Touch visualization is enabled but no config assigned. Create one to visualize touch input.", MessageType.Info);
+                
+                if (GUILayout.Button("Create Touch Visualization Config"))
+                {
+                    CreateAndAssignTouchConfig();
+                }
+            }
+            EditorGUILayout.EndVertical();
             
             EditorGUILayout.Space();
             
@@ -417,6 +464,86 @@ namespace UnityVerseBridge.Core.Editor
             EditorGUILayout.EndVertical();
             
             EditorGUILayout.EndHorizontal();
+        }
+        
+        private void CreateAndAssignConfig(bool isQuest)
+        {
+            string path = EditorUtility.SaveFilePanelInProject(
+                "Save UnityVerse Config",
+                isQuest ? "QuestConfig" : "MobileConfig",
+                "asset",
+                "Please enter a name for the config file"
+            );
+            
+            if (!string.IsNullOrEmpty(path))
+            {
+                var config = ScriptableObject.CreateInstance<UnityVerseConfig>();
+                
+                // Set defaults based on platform
+                config.signalingUrl = "ws://localhost:8080";
+                config.roomId = "quest-room";
+                config.roleDetection = RoleDetectionMode.Automatic;
+                config.manualRole = isQuest ? PeerRole.Host : PeerRole.Client;
+                config.autoConnect = true;
+                config.enableDebugLogging = true;
+                
+                AssetDatabase.CreateAsset(config, path);
+                AssetDatabase.SaveAssets();
+                
+                unityVerseConfig.objectReferenceValue = config;
+                serializedObject.ApplyModifiedProperties();
+                
+                Debug.Log($"Created {(isQuest ? "Quest" : "Mobile")} config at: {path}");
+            }
+        }
+        
+        private void CreateAndAssignTouchConfig()
+        {
+            string path = EditorUtility.SaveFilePanelInProject(
+                "Save Touch Visualization Config",
+                "TouchVisualizationConfig",
+                "asset",
+                "Please enter a name for the touch config file"
+            );
+            
+            if (!string.IsNullOrEmpty(path))
+            {
+                var config = ScriptableObject.CreateInstance<Configuration.TouchVisualizationConfig>();
+                
+                // Set defaults
+                config.mode = Configuration.TouchVisualizationConfig.VisualizationMode.Canvas;
+                config.enableInHost = true;
+                config.enableInClient = false;
+                
+                // Canvas mode settings
+                config.canvasRenderMode = UnityEngine.RenderMode.ScreenSpaceOverlay;
+                config.canvasSortingOrder = 100;
+                config.canvasIndicatorSize = 50f;
+                config.canvasIndicatorColor = Color.red;
+                config.canvasShowBothCoordinates = true;
+                
+                // Legacy 3D settings
+                config.cubeSize = 0.2f;
+                config.cubeDistance = 2f;
+                config.cubeColor = Color.red;
+                config.planeDistance = 0.5f;
+                config.dotSize = 0.05f;
+                config.dotColor = Color.yellow;
+                
+                // Common settings
+                config.showCoordinates = true;
+                config.coordinateFontSize = 14;
+                config.coordinateTextColor = Color.white;
+                config.maxTouchesDisplay = 10;
+                
+                AssetDatabase.CreateAsset(config, path);
+                AssetDatabase.SaveAssets();
+                
+                touchVisualizationConfig.objectReferenceValue = config;
+                serializedObject.ApplyModifiedProperties();
+                
+                Debug.Log($"Created touch visualization config at: {path}");
+            }
         }
     }
 }

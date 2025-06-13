@@ -13,6 +13,8 @@ namespace UnityVerseBridge.Core.Editor
         private const string ASSETS_PATH = "Assets/UnityVerseBridge";
         private const string QUEST_CONFIG_PATH = ASSETS_PATH + "/QuestConfig.asset";
         private const string MOBILE_CONFIG_PATH = ASSETS_PATH + "/MobileConfig.asset";
+        private const string QUEST_TOUCH_CONFIG_PATH = ASSETS_PATH + "/QuestTouchVisualizationConfig.asset";
+        private const string MOBILE_TOUCH_CONFIG_PATH = ASSETS_PATH + "/MobileTouchVisualizationConfig.asset";
         
         [MenuItem("GameObject/UnityVerseBridge/Quest Setup", false, 10)]
         public static void CreateQuestSetup()
@@ -26,10 +28,23 @@ namespace UnityVerseBridge.Core.Editor
             // Create or get Quest configuration
             var config = GetOrCreateQuestConfig();
             
+            // Create or get Quest touch visualization configuration
+            var touchConfig = GetOrCreateQuestTouchConfig();
+            
             // Set configuration via reflection (since it's private)
             var configField = typeof(UnityVerseBridgeManager).GetField("unityVerseConfig", 
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             configField?.SetValue(manager, config);
+            
+            // Set touch visualization configuration
+            var touchConfigField = typeof(UnityVerseBridgeManager).GetField("touchVisualizationConfig", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            touchConfigField?.SetValue(manager, touchConfig);
+            
+            // Enable auto create touch visualizer
+            var autoCreateField = typeof(UnityVerseBridgeManager).GetField("autoCreateTouchVisualizer", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            autoCreateField?.SetValue(manager, true);
             
             // Find VR Camera if available
             Camera vrCamera = FindVRCamera();
@@ -51,7 +66,7 @@ namespace UnityVerseBridge.Core.Editor
             Selection.activeGameObject = questGO;
             EditorGUIUtility.PingObject(questGO);
             
-            Debug.Log("[UnityVerseBridge] Quest setup created successfully");
+            Debug.Log("[UnityVerseBridge] Quest setup created successfully with touch visualization");
         }
         
         [MenuItem("GameObject/UnityVerseBridge/Mobile Setup", false, 11)]
@@ -115,7 +130,7 @@ namespace UnityVerseBridge.Core.Editor
             // Add AspectRatioFitter for proper video display
             AspectRatioFitter aspectFitter = videoDisplayGO.AddComponent<AspectRatioFitter>();
             aspectFitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
-            aspectFitter.aspectRatio = 16f / 9f; // Default 16:9, will be updated when video is received
+            aspectFitter.aspectRatio = 2.4f; // Default 2.4, will be updated when video is received
             
             // Assign video display
             var videoDisplayField = typeof(UnityVerseBridgeManager).GetField("videoDisplay", 
@@ -221,6 +236,59 @@ namespace UnityVerseBridge.Core.Editor
             AssetDatabase.SaveAssets();
             
             Debug.Log($"[UnityVerseBridge] Created Mobile configuration at: {MOBILE_CONFIG_PATH}");
+            return config;
+        }
+        
+        private static UnityVerseBridge.Core.Configuration.TouchVisualizationConfig GetOrCreateQuestTouchConfig()
+        {
+            // Check if config already exists
+            var existingConfig = AssetDatabase.LoadAssetAtPath<UnityVerseBridge.Core.Configuration.TouchVisualizationConfig>(QUEST_TOUCH_CONFIG_PATH);
+            if (existingConfig != null)
+            {
+                return existingConfig;
+            }
+            
+            // Create new config
+            var config = ScriptableObject.CreateInstance<UnityVerseBridge.Core.Configuration.TouchVisualizationConfig>();
+            
+            // Set Quest-specific defaults for touch visualization
+            config.mode = UnityVerseBridge.Core.Configuration.TouchVisualizationConfig.VisualizationMode.Canvas;
+            config.enableInHost = true;
+            config.enableInClient = false;
+            
+            // Canvas mode settings
+            config.canvasRenderMode = UnityEngine.RenderMode.ScreenSpaceOverlay;
+            config.canvasSortingOrder = 100;
+            config.canvasIndicatorSize = 50f;
+            config.canvasIndicatorColor = Color.red;
+            config.canvasShowBothCoordinates = true;
+            
+            // Legacy 3D settings (for compatibility)
+            config.cubeSize = 0.2f;
+            config.cubeDistance = 2f;
+            config.cubeColor = Color.red;
+            config.planeDistance = 0.5f;
+            config.dotSize = 0.05f;
+            config.dotColor = Color.yellow;
+            
+            // Common settings
+            config.showCoordinates = true;
+            config.coordinateFontSize = 14;
+            config.coordinateTextColor = Color.white;
+            config.maxTouchesDisplay = 10;
+            config.touchFadeTime = 0f;
+            
+            // Ensure directory exists
+            if (!Directory.Exists(ASSETS_PATH))
+            {
+                Directory.CreateDirectory(ASSETS_PATH);
+            }
+            
+            // Save asset
+            AssetDatabase.CreateAsset(config, QUEST_TOUCH_CONFIG_PATH);
+            AssetDatabase.SaveAssets();
+            
+            Debug.Log($"[UnityVerseBridge] Created Quest touch visualization configuration at: {QUEST_TOUCH_CONFIG_PATH}");
             return config;
         }
         
